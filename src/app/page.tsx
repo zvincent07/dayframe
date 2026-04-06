@@ -7,6 +7,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { hasPermission } from "@/permissions";
 import { cookies } from "next/headers";
+import Link from "next/link";
 
 // Simple Book Icon SVG
 function BookIcon(props: React.SVGProps<SVGSVGElement>) {
@@ -96,13 +97,13 @@ export default async function LoginPage() {
             <GoogleButton />
             <p className="px-8 text-center text-sm text-muted-foreground/80">
               By clicking continue, you agree to our{" "}
-              <a href="#" className="underline underline-offset-4 hover:text-primary font-medium text-foreground/80 hover:text-foreground">
+              <Link href="/terms" className="underline underline-offset-4 hover:text-primary font-medium text-foreground/80 hover:text-foreground">
                 Terms of Service
-              </a>{" "}
+              </Link>{" "}
               and{" "}
-              <a href="#" className="underline underline-offset-4 hover:text-primary font-medium text-foreground/80 hover:text-foreground">
+              <Link href="/privacy" className="underline underline-offset-4 hover:text-primary font-medium text-foreground/80 hover:text-foreground">
                 Privacy Policy
-              </a>
+              </Link>
               .
             </p>
           </div>

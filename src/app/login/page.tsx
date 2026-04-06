@@ -3,6 +3,7 @@ import { ModeToggle } from "@/components/mode-toggle";
 import { GoogleSection } from "@/components/auth/google-section";
 import { SettingsService } from "@/services/settings.service";
 import Image from "next/image";
+import Link from "next/link";
 
 export const dynamic = 'force-dynamic';
 // export const revalidate = 0; // Force no cache for this page
@@ -71,13 +72,13 @@ export default async function LoginPage() {
             <GoogleSection />
             <p className="px-8 text-center text-sm text-muted-foreground/80">
               By clicking continue, you agree to our{" "}
-              <a href="#" className="underline underline-offset-4 hover:text-primary font-medium text-foreground/80 hover:text-foreground">
+              <Link href="/terms" className="underline underline-offset-4 hover:text-primary font-medium text-foreground/80 hover:text-foreground">
                 Terms of Service
-              </a>{" "}
+              </Link>{" "}
               and{" "}
-              <a href="#" className="underline underline-offset-4 hover:text-primary font-medium text-foreground/80 hover:text-foreground">
+              <Link href="/privacy" className="underline underline-offset-4 hover:text-primary font-medium text-foreground/80 hover:text-foreground">
                 Privacy Policy
-              </a>
+              </Link>
               .
             </p>
           </div>
