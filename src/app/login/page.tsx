@@ -113,7 +113,7 @@ export default async function LoginPage() {
             <div className="space-y-3">
               <h2 className="text-2xl font-semibold tracking-tight text-foreground">{config.appName}</h2>
               <p className="text-muted-foreground leading-relaxed">
-                {config.appDescription || "Capture your day, track your habits, and grow with mentorship. Your personal space for reflection and progress."}
+                {config.appDescription || "Capture your day, track your habits, and reflect on your progress. Your personal space for growth."}
               </p>
             </div>
           </div>

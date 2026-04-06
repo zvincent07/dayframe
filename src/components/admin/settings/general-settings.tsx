@@ -245,7 +245,7 @@ export function GeneralSettings({ initialConfig }: GeneralSettingsProps) {
                         <FormLabel>App Description (Login Page)</FormLabel>
                         <FormControl>
                           <Textarea 
-                            placeholder="Capture your day, track your habits, and grow with mentorship..." 
+                            placeholder="Capture your day, track your habits, and reflect on your progress..." 
                             className="resize-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
                             {...field} 
                           />

@@ -26,7 +26,7 @@ export interface SystemConfig {
 
 export const DEFAULT_CONFIG: SystemConfig = {
   appName: "Dayframe Journal",
-  appDescription: "Capture your day, track your habits, and grow with mentorship. Your personal space for reflection and progress.",
+  appDescription: "Capture your day, track your habits, and reflect on your progress. Your personal space for growth.",
   supportEmail: "support@dayframe.com",
   maintenanceMode: false,
   maintenanceMessage: "We are currently undergoing maintenance. Please check back later.",

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { ModeToggle } from "@/components/mode-toggle";
 
 export const metadata = {
   title: "Privacy Policy | Dayframe",
@@ -8,23 +10,31 @@ export const metadata = {
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
-        <Button variant="ghost" asChild className="mb-8 -ml-4">
+    <div className="flex min-h-[100dvh] w-full flex-col items-center bg-muted/30 px-4 py-12 sm:px-6 md:p-8">
+      <div className="absolute top-4 right-4 z-20">
+        <ModeToggle />
+      </div>
+
+      <div className="mx-auto w-full max-w-3xl space-y-6">
+        <Button variant="ghost" asChild className="mb-2 -ml-4 hover:bg-transparent">
           <Link href="/">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Home
           </Link>
         </Button>
 
-        <article className="prose prose-slate dark:prose-invert max-w-none">
-          <h1>Privacy Policy</h1>
-          <p><strong>Last Updated:</strong> April 6, 2026</p>
-          
-          <p>
-            Welcome to Dayframe. We take your privacy seriously. This Privacy Policy 
-            explains how Dayframe operates regarding your personal data.
-          </p>
+        <Card className="shadow-lg border-border/50">
+          <CardContent className="p-8 sm:p-12">
+            <article className="prose prose-slate dark:prose-invert max-w-none">
+              <h1 className="tracking-tight mb-2">Privacy Policy</h1>
+              <p className="text-muted-foreground mt-0"><strong>Last Updated:</strong> April 6, 2026</p>
+              
+              <div className="my-8 h-px bg-border/50" />
+
+              <p>
+                Welcome to Dayframe. We take your privacy seriously. This Privacy Policy 
+                explains how Dayframe operates regarding your personal data.
+              </p>
 
           <h2>1. Local-First & Self-Hosted Design</h2>
           <p>
@@ -60,7 +70,9 @@ export default function PrivacyPage() {
           <p>
             If you have questions about the core open-source software, please open an issue on the official project repository. If you are using a hosted instance managed by a third party, please contact your instance administrator.
           </p>
-        </article>
+            </article>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
