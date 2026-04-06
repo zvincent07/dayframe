@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "npm run seed && next dev",
-    "build": "next build",
+    "build": "cross-env NODE_OPTIONS=\"--max-old-space-size=4096\" next build",
     "start": "next start",
     "seed": "ts-node -r dotenv/config --compiler-options \"{\\\"module\\\":\\\"commonjs\\\"}\" scripts/seed.ts",
     "lint": "eslint",
