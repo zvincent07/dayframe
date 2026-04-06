@@ -38,7 +38,8 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   experimental: {
-    memoryBasedWorkersCount: true,
+    workerThreads: false,
+    cpus: 1,
   },
 };
 
