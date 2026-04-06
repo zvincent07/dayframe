@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { format } from "date-fns";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";

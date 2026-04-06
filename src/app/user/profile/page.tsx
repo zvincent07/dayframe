@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { auth } from "@/auth";
 import { getJournalStats } from "@/actions/journal";
 import { ConsistencyHeatmap } from "@/components/features/profile/consistency-heatmap";

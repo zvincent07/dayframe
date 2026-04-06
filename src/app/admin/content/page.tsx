@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { PageHeader } from "@/components/ui/page-header";
 import { ContentTabs } from "@/components/admin/content/content-tabs";
 import { getAnnouncements, getBlogPosts, getEmailTemplates, getJournalPrompts } from "@/actions/content";

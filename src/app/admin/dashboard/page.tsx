@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { PageHeader } from "@/components/ui/page-header";
 import { AdminOverview } from "@/components/admin/admin-overview";
 import { getAdminDashboardStats } from "@/actions/admin-dashboard";
