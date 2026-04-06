@@ -151,9 +151,10 @@ function kgStorageStringToDisplayWeight(kgStr: string, weightUnit: "metric" | "i
 function normalizeWeightInput(raw: string, exerciseId?: string, weightUnit: "metric" | "imperial" = "metric"): string {
   const s = String(raw || "").trim().toLowerCase();
   if (!s) return "";
+  if (s === "b" || s === "bw") return "bw";
   if (s === "none") {
     const id = String(exerciseId || "").toLowerCase();
-    const isBw = id.includes("pullup") || id.includes("chinup") || id.includes("pushup") || id.includes("dip");
+    const isBw = id.includes("pullup") || id.includes("chinup") || id.includes("pushup") || id.includes("dip") || id.includes("archer-pull");
     return isBw ? "bw" : "";
   }
   if (s.endsWith("kg")) {
@@ -226,8 +227,10 @@ const EXERCISES: Exercise[] = [
   { id: "archer-pullup", name: "Archer Pull-Up", targetMuscle: "Lats / Biceps", category: "pull" },
   { id: "wm-u-pulldown", name: "Wide / Mid / Under Pulldown", targetMuscle: "Lats / Mid Back", category: "pull" },
   { id: "singlearm-lat-pulldown", name: "Single-Arm Lat Pulldown", targetMuscle: "Lats", category: "pull" },
+  { id: "row-singlearm-cable", name: "Single-Arm Cable Row", targetMuscle: "Lats / Mid Back", category: "pull" },
   { id: "lat-pullover", name: "Cable Pullover", targetMuscle: "Lats", category: "pull" },
   { id: "face-pull", name: "Face Pull", targetMuscle: "Rear Delts / Upper Back", category: "pull" },
+  { id: "archer-pull", name: "Archer Pull", targetMuscle: "Rear Delts", category: "pull" },
   { id: "reverse-fly", name: "Reverse Fly", targetMuscle: "Rear Delts", category: "pull" },
   { id: "curl-db", name: "DB Curl", targetMuscle: "Biceps", category: "pull" },
   { id: "curl-barbell", name: "Barbell Curl", targetMuscle: "Biceps", category: "pull" },
@@ -247,6 +250,7 @@ const EXERCISES: Exercise[] = [
   { id: "pushup", name: "Push-Up", targetMuscle: "Chest / Triceps", category: "push" },
   { id: "weighted-pushup", name: "Weighted Push-Up", targetMuscle: "Chest / Triceps", category: "push" },
   { id: "dip", name: "Parallel Bar Dips", targetMuscle: "Chest / Triceps", category: "push" },
+  { id: "dip-bw", name: "Bodyweight Dips", targetMuscle: "Chest / Triceps", category: "push" },
   { id: "weighted-dip", name: "Weighted Dips", targetMuscle: "Chest / Triceps", category: "push" },
   { id: "ring-dip", name: "Ring Dips", targetMuscle: "Chest / Triceps / Shoulders", category: "push" },
   { id: "press-ohp", name: "Standing Barbell OHP", targetMuscle: "Shoulders", category: "push" },

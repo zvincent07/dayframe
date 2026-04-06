@@ -13,6 +13,7 @@ const FEEDS: Record<string, string[]> = {
   "Top Headlines": [
     "https://feeds.bbci.co.uk/news/world/rss.xml",
     "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    "https://news.google.com/rss/search?q=world&hl=en-US&gl=US&ceid=US:en",
   ],
   "Technology": [
     "https://techcrunch.com/feed/",
@@ -32,8 +33,9 @@ const FEEDS: Record<string, string[]> = {
     "https://www.theguardian.com/business/rss",
   ],
   "Philippines": [
-    "https://www.inquirer.net/fullfeed",
-    "https://news.abs-cbn.com/rss",
+    "https://newsinfo.inquirer.net/feed",
+    "https://www.philstar.com/rss/headlines",
+    "https://news.google.com/rss/search?q=philippines&hl=en-PH&gl=PH&ceid=PH:en",
   ],
   "Anime": [
     "https://myanimelist.net/rss/news.xml",
