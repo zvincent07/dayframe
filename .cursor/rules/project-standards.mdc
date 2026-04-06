@@ -1,0 +1,25 @@
+---
+description: Apply project engineering rules (.rule) to all code
+alwaysApply: true
+---
+
+# Project-wide standards
+
+When editing **any file** in this codebase, you **must** follow the engineering rules and conventions defined in the project root file **`.rule`**.
+
+That file is the single source of truth for:
+
+- Core principles (KISS, DRY, clean code, stability first, YAGNI)
+- Architecture (app/, components/, lib/, services/, permissions/, schemas/)
+- TypeScript (strict, no `any`, interface over type)
+- Next.js App Router (RSC first, Server Actions, limit `"use client"`)
+- Shadcn UI (use Shadcn components; no custom replacements when Shadcn exists)
+- Tailwind and responsive design (mobile-first, no hardcoded colors)
+- State (URL as truth for filters/pagination; useState for transient UI only)
+- Authorization (permissions over roles; use `requirePermission` / `hasPermission`; never `user.role === 'admin'`)
+- MongoDB (lib/mongodb, schemas required, no raw queries in UI)
+- Validation (Zod for all inputs)
+- Mutations (useOptimistic, startTransition, revalidatePath, toast on error)
+- Security, logging, env, commits, testing (Vitest + Playwright)
+
+Read **`.rule`** for the full text. Apply it to every change you make in this project.

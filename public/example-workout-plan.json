@@ -1,0 +1,50 @@
+{
+  "title": "Example Workout Plan",
+  "routines": [
+    {
+      "routineId": "push-day",
+      "name": "Push Day",
+      "exercises": [
+        {
+          "exerciseId": "bench-press",
+          "targetSets": 4,
+          "targetReps": "8-12",
+          "targetRPE": 8,
+          "targetWeight": "135lbs",
+          "restTime": "90s"
+        },
+        {
+          "exerciseId": "overhead-press",
+          "targetSets": 3,
+          "targetReps": "6-10",
+          "targetRPE": 8,
+          "targetWeight": "95lbs",
+          "restTime": "120s"
+        }
+      ]
+    },
+    {
+      "routineId": "pull-day",
+      "name": "Pull Day",
+      "exercises": [
+        {
+          "exerciseId": "pull-ups",
+          "targetSets": 3,
+          "targetReps": "8-12",
+          "targetRPE": 8,
+          "targetWeight": "Bodyweight",
+          "restTime": "90s"
+        },
+        {
+          "exerciseId": "barbell-rows",
+          "targetSets": 4,
+          "targetReps": "6-10",
+          "targetRPE": 8,
+          "targetWeight": "115lbs",
+          "restTime": "120s"
+        }
+      ]
+    }
+  ],
+  "schedule": ["PUSH", "PULL", "REST", "LEGS", "PUSH", "PULL", "REST"]
+}

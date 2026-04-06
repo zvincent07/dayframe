@@ -1,0 +1,11 @@
+    Blocking waiting for file lock on build directory
+    Checking dayframe-app v0.1.0 (Z:\Projects\dayframe\src-tauri)
+error: failed to read asset at Z:\Projects\dayframe\src-tauri\../.next\server\app\api\auth\[...nextauth]\route.js because The system cannot find the path specified. (os error 3)
+   --> src\main.rs:721:10
+    |
+721 |     .run(tauri::generate_context!())
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this error originates in the macro `tauri::generate_context` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: could not compile `dayframe-app` (bin "dayframe-app") due to 1 previous error
