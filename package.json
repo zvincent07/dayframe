@@ -4,15 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "npm run seed && next dev",
-    "build": "cross-env NODE_OPTIONS=\"--max-old-space-size=4096\" next build",
+    "build": "cross-env NODE_OPTIONS=--max_old_space_size=4096 next build",
     "start": "next start",
     "seed": "ts-node -r dotenv/config --compiler-options \"{\\\"module\\\":\\\"commonjs\\\"}\" scripts/seed.ts",
     "lint": "eslint",
     "lint:ci": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "tauri:dev": "concurrently --kill-others \"next dev --port 3000\" \"wait-on http://localhost:3000 && tauri dev\"",
-    "tauri:build": "next build && tauri build"
-  },
+    "tauri:build": "cross-env NODE_OPTIONS=--max_old_space_size=4096 next build && tauri build"
+  }
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
