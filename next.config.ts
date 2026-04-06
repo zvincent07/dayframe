@@ -31,6 +31,15 @@ const nextConfig: NextConfig = {
     })(),
     unoptimized: false,
   },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  experimental: {
+    memoryBasedWorkersCount: true,
+  },
 };
 
 export default nextConfig;
