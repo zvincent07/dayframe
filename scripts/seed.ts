@@ -164,7 +164,7 @@ export async function runSeed(): Promise<SeedResult> {
           sess,
           key,
           value,
-          createdAdmin?._id?.toString?.() || "system",
+          (createdAdmin as any)?._id?.toString?.() || "system",
           "default"
         );
         if (res) settingsUpserted++;
@@ -173,7 +173,7 @@ export async function runSeed(): Promise<SeedResult> {
         sess,
         "seed:version",
         1,
-        createdAdmin?._id?.toString?.() || "system",
+        (createdAdmin as any)?._id?.toString?.() || "system",
         "internal_seed_version"
       );
 
