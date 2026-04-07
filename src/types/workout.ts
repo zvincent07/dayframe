@@ -8,6 +8,7 @@ export interface Exercise {
 }
 
 export interface RoutineExercise {
+  id?: string;
   exerciseId: string;
   targetSets: number;
   targetReps: string;

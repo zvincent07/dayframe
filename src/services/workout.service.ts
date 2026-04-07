@@ -3,8 +3,22 @@ import { IWorkoutPlan } from "@/models/WorkoutPlan";
 import { WorkoutRoutineInput, WorkoutScheduleInput } from "@/schemas/workout";
 import { WorkoutRepository } from "@/repositories/workout.repository";
 import { UserActivityService } from "./user-activity.service";
+import { logger } from "@/lib/logger";
 
 export class WorkoutService {
+  private static async logAudit(action: string, userId: string, details?: Record<string, any>) {
+    try {
+      const { AuditService } = await import("@/services/audit.service");
+      const { User } = await import("@/models/User");
+      const user = await User.findById(userId).select("email").lean();
+      if (user) {
+        await AuditService.log(action, undefined, "Workout", details, { id: userId, email: user.email || "" });
+      }
+    } catch (err) {
+      logger.error("Failed to log workout audit", err);
+    }
+  }
+
   static async getConfig(userId: string) {
     const [routines, plan] = await WorkoutRepository.findConfig(userId);
 
@@ -105,6 +119,13 @@ export class WorkoutService {
   }
 
   static async saveWorkoutLog(userId: string, date: string, workouts: IWorkoutEntry[], finished?: boolean) {
+    if (finished) {
+      WorkoutService.logAudit("WORKOUT_FINISHED", userId, { 
+        date, 
+        count: workouts.length,
+        exercises: workouts.map(w => w.exercise)
+      }).catch(() => {});
+    }
     await Promise.all([
       WorkoutRepository.upsertWorkoutLog(userId, date, workouts, finished),
       UserActivityService.recordActivity(userId),

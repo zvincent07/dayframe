@@ -5,6 +5,7 @@ import { UserRepository } from "@/repositories/user.repository";
 import { UserActivityService } from "./user-activity.service";
 import { Types } from "mongoose";
 import { estimateNutrition } from "@/lib/nutrition";
+import { logger } from "@/lib/logger";
 
 interface JournalDoc {
   _id: Types.ObjectId | string;
@@ -27,6 +28,18 @@ interface JournalHistoryDoc extends JournalDoc {
 }
 
 export class JournalService {
+  private static async logAudit(action: string, userId: string, details?: Record<string, any>) {
+    try {
+      const { AuditService } = await import("@/services/audit.service");
+      const user = await UserRepository.findById(userId);
+      if (user) {
+        await AuditService.log(action, undefined, "Journal", details, { id: userId, email: user.email || "" });
+      }
+    } catch (err) {
+      logger.error("Failed to log journal audit", err);
+    }
+  }
+
   /**
    * Spending docs often store USD as a schema default. When the user prefers another currency,
    * treat stored USD as unset and use their profile currency for display.
@@ -208,6 +221,25 @@ export class JournalService {
           }))
           .filter((e) => e.item.length > 0)
       : [];
+
+    // Audit individual activities
+    if (spending.length > 0) {
+      JournalService.logAudit("SPENDING_LOGGED", userId, { 
+        date, 
+        count: spending.length, 
+        items: spending.map(s => s.item).join(", ") 
+      }).catch(() => {});
+    }
+
+    const hasFood = data.food && Object.values(data.food).some(v => v && String(v).trim().length > 0);
+    if (hasFood) {
+      const foodText = Object.values(data.food as Record<string, string>).join(" ");
+      const nutrition = estimateNutrition(foodText);
+      JournalService.logAudit("FOOD_LOGGED", userId, { 
+        date, 
+        calories: nutrition.calories 
+      }).catch(() => {});
+    }
 
     await Promise.all([
       JournalRepository.upsertJournalEntry(userId, date, {

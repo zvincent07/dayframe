@@ -8,7 +8,7 @@ import { UserRepository } from "@/repositories/user.repository";
 import { AIInsightRepository } from "@/repositories/ai-insight.repository";
 import { requirePermission } from "@/permissions";
 
-type Timeframe = "7d" | "30d" | "1y";
+type Timeframe = "7d" | "30d" | "1y" | "all";
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
@@ -42,8 +42,11 @@ export async function getVolumeTrend(timeframe: Timeframe) {
   let start: Date;
   if (timeframe === "7d") start = addDays(end, -6);
   else if (timeframe === "30d") start = addDays(end, -29);
-  else {
+  else if (timeframe === "1y") {
     start = new Date(end.getFullYear(), 0, 1);
+  } else {
+    // "all" - practically use a far past date
+    start = new Date(2020, 0, 1);
   }
   const startKey = formatDateKey(start);
   const endKey = formatDateKey(end);
@@ -62,7 +65,7 @@ export async function getVolumeTrend(timeframe: Timeframe) {
     }
     byDate.set(doc.date, (byDate.get(doc.date) || 0) + v);
   }
-  if (timeframe === "1y") {
+  if (timeframe === "1y" || timeframe === "all") {
     const months = new Array(12).fill(0);
     for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
       const key = formatDateKey(d);
@@ -92,8 +95,10 @@ export async function getSpendingBreakdown(timeframe: Timeframe) {
   let start: Date;
   if (timeframe === "7d") start = addDays(end, -6);
   else if (timeframe === "30d") start = addDays(end, -29);
-  else {
+  else if (timeframe === "1y") {
     start = new Date(end.getFullYear(), 0, 1);
+  } else {
+    start = new Date(2020, 0, 1);
   }
   const startKey = formatDateKey(start);
   const endKey = formatDateKey(end);
@@ -122,7 +127,7 @@ export async function getSpendingBreakdown(timeframe: Timeframe) {
       currency
     );
   }
-  if (timeframe === "1y") {
+  if (timeframe === "1y" || timeframe === "all") {
     const months = new Array(12).fill(0);
     for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
       const key = formatDateKey(d);
@@ -149,8 +154,10 @@ export async function getTaskCompletion(timeframe: Timeframe) {
   let start: Date;
   if (timeframe === "7d") start = addDays(end, -6);
   else if (timeframe === "30d") start = addDays(end, -29);
-  else {
+  else if (timeframe === "1y") {
     start = new Date(end.getFullYear(), 0, 1);
+  } else {
+    start = new Date(2020, 0, 1);
   }
 
   const startKey = formatDateKey(start);
@@ -169,7 +176,7 @@ export async function getTaskCompletion(timeframe: Timeframe) {
 
   // Aggregate from historical journal records
   if (Array.isArray(taskDocs)) {
-    for (const doc of taskDocs as Array<{ date: string; tasks?: Array<{ done?: boolean }> }>) {
+    for (const doc of taskDocs as Array<{ date: string; tasks?: Array<{ title?: string; duration?: string; done?: boolean }> }>) {
       // Skip "today" from journal history (if it exists), we will use live data
       if (doc.date === todayKey) continue;
       
@@ -302,9 +309,12 @@ export async function getPreviousTotals(timeframe: Timeframe) {
   } else if (timeframe === "30d") {
     prevEnd = addDays(end, -30);
     start = addDays(end, -59);
-  } else {
+  } else if (timeframe === "1y") {
     prevEnd = new Date(end.getFullYear() - 1, 11, 31);
     start = new Date(end.getFullYear() - 1, 0, 1);
+  } else {
+    // For "all", there's no "previous" all, so return 0
+    return { volume: 0, spending: 0, completed: 0 };
   }
 
   const startKey = formatDateKey(start);
@@ -337,7 +347,7 @@ export async function getPreviousTotals(timeframe: Timeframe) {
   const taskDocs = await JournalRepository.findTasksByDateRange(session.user.id, startKey, endKey);
   let completed = 0;
   if (Array.isArray(taskDocs)) {
-    for (const doc of taskDocs as Array<{ tasks?: Array<{ done?: boolean }> }>) {
+    for (const doc of taskDocs as Array<{ tasks?: Array<{ title?: string; duration?: string; done?: boolean }> }>) {
       const tasks = Array.isArray(doc.tasks) ? doc.tasks : [];
       for (const t of tasks) {
         if (t.done) completed++;
@@ -357,8 +367,10 @@ export async function getTaskBreakdown(timeframe: Timeframe) {
   let start: Date;
   if (timeframe === "7d") start = addDays(end, -6);
   else if (timeframe === "30d") start = addDays(end, -29);
-  else {
+  else if (timeframe === "1y") {
     start = new Date(end.getFullYear(), 0, 1);
+  } else {
+    start = new Date(2020, 0, 1);
   }
 
   const startKey = formatDateKey(start);
@@ -370,30 +382,31 @@ export async function getTaskBreakdown(timeframe: Timeframe) {
 
   const todayKey = formatDateKey(new Date());
   const coveredDates = new Set<string>();
-  const stats = new Map<string, { completed: number; missed: number }>();
+  const stats = new Map<string, { completed: number; missed: number; duration: string }>();
 
-  const recordTask = (title: string, done: boolean) => {
+  const recordTask = (title: string, done: boolean, duration: string = "") => {
     if (!title) return;
-    if (!stats.has(title)) stats.set(title, { completed: 0, missed: 0 });
+    if (!stats.has(title)) stats.set(title, { completed: 0, missed: 0, duration: duration || "" });
     const stat = stats.get(title)!;
     if (done) stat.completed++;
     else stat.missed++;
+    if (duration && !stat.duration) stat.duration = duration;
   };
 
   if (Array.isArray(taskDocs)) {
-    for (const doc of taskDocs as Array<{ date: string; tasks?: Array<{ title?: string; done?: boolean }> }>) {
+    for (const doc of taskDocs as Array<{ date: string; tasks?: Array<{ title?: string; duration?: string; done?: boolean }> }>) {
       if (doc.date === todayKey) continue;
       coveredDates.add(doc.date);
       const tasks = Array.isArray(doc.tasks) ? doc.tasks : [];
       for (const t of tasks) {
-        if (t.title) recordTask(t.title, Boolean(t.done));
+        if (t.title) recordTask(t.title, Boolean(t.done), t.duration);
       }
     }
   }
 
   if (todayKey >= startKey && todayKey <= endKey) {
     for (const t of currentTasks) {
-      if (t.title) recordTask(t.title, Boolean(t.isCompleted));
+      if (t.title) recordTask(t.title, Boolean(t.isCompleted), t.duration);
     }
     coveredDates.add(todayKey);
   }
@@ -401,17 +414,18 @@ export async function getTaskBreakdown(timeframe: Timeframe) {
   for (const t of currentTasks) {
     const key = t.lastCompletedDateKey;
     if (key && key >= startKey && key <= endKey && !coveredDates.has(key)) {
-      if (t.title) recordTask(t.title, true);
+      if (t.title) recordTask(t.title, true, t.duration);
     }
   }
 
-  const result: Array<{ title: string; completed: number; missed: number; total: number }> = [];
+  const result: Array<{ title: string; completed: number; missed: number; total: number; duration: string }> = [];
   for (const [title, data] of stats.entries()) {
     result.push({
       title,
       completed: data.completed,
       missed: data.missed,
       total: data.completed + data.missed,
+      duration: data.duration,
     });
   }
 

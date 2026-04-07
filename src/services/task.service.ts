@@ -8,26 +8,40 @@ import mongoose from "mongoose";
 import { logger } from "@/lib/logger";
 
 export class DailyTaskService {
+  private static async logAudit(action: string, userId: string, taskId: string, details?: Record<string, any>) {
+    try {
+      const { AuditService } = await import("@/services/audit.service");
+      const { User } = await import("@/models/User");
+      const user = await User.findById(userId).select("email").lean();
+      if (user) {
+        await AuditService.log(action, taskId, "DailyTask", details, { id: userId, email: user.email || "" });
+      }
+    } catch (err) {
+      logger.error("Failed to log task audit", err);
+    }
+  }
+
   /**
    * Syncs the current state of Daily Tasks to the JournalTasks collection for the current day.
    * This ensures history is preserved even if the user doesn't manually create a journal entry.
    */
   static async syncToJournal(userId: string, dateKey?: string) {
     await connectDB();
-    // Use user timezone-aware date key for today if not explicitly provided
     const targetKey = dateKey || await DailyTaskService.formatUserDateKey(userId, new Date());
-    const tasks = await DailyTask.find({ userId }).sort({ createdAt: 1 }).lean();
-    const taskEntries = tasks.map(t => ({
-      title: t.title,
-      duration: t.duration,
-      done: t.lastCompletedDateKey === targetKey
-    }));
     
-    // Use upsertJournalEntry to save tasks history
     try {
-      await JournalRepository.upsertJournalEntry(userId, targetKey, {
-        tasks: taskEntries
-      });
+      const tasks = await DailyTask.find({ userId }).sort({ createdAt: 1 }).lean();
+      const taskEntries = tasks.map(t => ({
+        title: t.title,
+        duration: t.duration,
+        done: t.lastCompletedDateKey === targetKey
+      }));
+      
+      await JournalTasks.findOneAndUpdate(
+        { userId: new mongoose.Types.ObjectId(userId), date: targetKey },
+        { $set: { tasks: taskEntries } },
+        { upsert: true }
+      );
     } catch (err) {
       logger.error("Failed to sync tasks to journal", err, { userId, targetKey });
     }
@@ -53,17 +67,14 @@ export class DailyTaskService {
   static async getTasks(userId: string) {
     await connectDB();
 
-    // Resolve user timezone keys for today and yesterday efficiently
     const user = await UserRepository.findById(userId);
     const timezone = user?.timezone || "UTC";
-    
     const today = new Date();
     const todayKey = DailyTaskService.formatDateKeyWithTz(today, timezone);
     const yesterdayDate = new Date(today);
     yesterdayDate.setDate(yesterdayDate.getDate() - 1);
     const yesterdayKey = DailyTaskService.formatDateKeyWithTz(yesterdayDate, timezone);
 
-    // Optional catch-up: if the app hasn't been opened for several days, backfill prior days as "missed"
     try {
       const latest = await JournalTasks.find({ userId: new mongoose.Types.ObjectId(userId) })
         .select("date")
@@ -75,15 +86,14 @@ export class DailyTaskService {
       
       if (lastSnapshotKey && lastSnapshotKey < yesterdayKey) {
         const tasksForSnapshot = await DailyTask.find({ userId }).sort({ createdAt: 1 }).lean();
-        // Create entries for each missing day between lastSnapshotKey (exclusive) and yesterdayKey (inclusive)
         const missingKeys: string[] = [];
         const cursor = new Date(lastSnapshotKey);
         const end = new Date(yesterdayKey);
-        // advance one day after last snapshot
+        
         cursor.setDate(cursor.getDate() + 1);
         while (cursor <= end) {
           missingKeys.push(DailyTaskService.formatLocalDateKey(cursor));
-          cursor.setDate(cursor.getDate() - 0 + 1);
+          cursor.setDate(cursor.getDate() + 1);
         }
         
         if (missingKeys.length > 0) {
@@ -94,15 +104,11 @@ export class DailyTaskService {
                    const createdKey = DailyTaskService.formatDateKeyWithTz(t.createdAt, timezone);
                    return createdKey <= key;
                 })
-                .map(t => {
-                  const done = t.lastCompletedDateKey === key;
-                  return {
-                    title: t.title,
-                    duration: t.duration,
-                    done
-                  };
-                });
-              // Only insert if it doesn't exist, don't overwrite
+                .map(t => ({
+                  title: t.title,
+                  duration: t.duration,
+                  done: t.lastCompletedDateKey === key
+                }));
               return JournalTasks.updateOne(
                 { userId: new mongoose.Types.ObjectId(userId), date: key },
                 { $setOnInsert: { tasks: entriesForDay } },
@@ -116,8 +122,6 @@ export class DailyTaskService {
       logger.error("Failed to persist yesterday task snapshot", err);
     }
 
-    // Snapshot: tasks that were not completed yesterday get recorded in "not completed" for yesterday
-    // Mark tasks not touched today as "yesterday" to persist missed stats
     await DailyTask.updateMany(
       {
         userId,
@@ -133,27 +137,17 @@ export class DailyTaskService {
 
     const tasks = await DailyTask.find({ userId }).sort({ isCompleted: 1, createdAt: 1 }).lean();
     
-    // Ensure today's journal has a record of these tasks (snapshots "Missed" count if nothing done yet)
-    // Fire and forget to avoid slowing down read
-    DailyTaskService.syncToJournal(userId).catch(err => logger.error("Failed to sync initial tasks", err));
+    // Background sync
+    DailyTaskService.syncToJournal(userId, todayKey).catch(err => logger.error("Sync error", err));
 
     const tasksForToday = tasks.map(t => ({
       ...t,
       isCompleted: t.lastCompletedDateKey === todayKey
     })).sort((a, b) => {
       if (a.isCompleted === b.isCompleted) {
-        const ad = new Date(a.createdAt as unknown as string).getTime();
-        const bd = new Date(b.createdAt as unknown as string).getTime();
-        return ad - bd;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
       }
       return a.isCompleted ? 1 : -1;
-    });
-
-    logger.debug("[TaskService] Tasks fetched", {
-      userId,
-      dateKey: todayKey,
-      total: tasksForToday.length,
-      completed: tasksForToday.filter(t => t.isCompleted).length
     });
 
     return JSON.parse(JSON.stringify(tasksForToday));
@@ -267,34 +261,65 @@ export class DailyTaskService {
   static async updateTask(userId: string, taskId: string, data: Partial<IDailyTask> & { completedDateKey?: string }) {
     await connectDB();
     
-    const updateData: Record<string, unknown> = { ...data };
+    // 1. Resolve date key context
+    const todayKey = await DailyTaskService.formatUserDateKey(userId, new Date());
     const clientDateKey = typeof data.completedDateKey === "string" && data.completedDateKey.length > 0 
       ? data.completedDateKey 
-      : await DailyTaskService.formatUserDateKey(userId, new Date());
+      : todayKey;
 
+    const isHistoryUpdate = clientDateKey !== todayKey;
+    const updatePayload: Record<string, any> = { ...data };
+    
+    // 2. If it's a history update, persist directly to the JournalTasks snapshot first
+    if (isHistoryUpdate) {
+      try {
+        const journal = await JournalTasks.findOne({
+          userId: new mongoose.Types.ObjectId(userId),
+          date: clientDateKey
+        });
+
+        if (journal) {
+          const taskEntry = journal.tasks.find(t => (t as any)._id?.toString() === taskId || t.title === data.title);
+          if (taskEntry) {
+            if (data.isCompleted !== undefined) taskEntry.done = data.isCompleted;
+            if (data.title) taskEntry.title = data.title;
+            if (data.duration !== undefined) taskEntry.duration = data.duration;
+            await journal.save();
+          }
+        }
+      } catch (err) {
+        logger.error("Failed to update historical task in journal", err, { taskId, clientDateKey });
+      }
+    }
+
+    // 3. Update the active DailyTask (if it exists)
     // Always record a touch key for this date
-    updateData.lastTouchedDateKey = clientDateKey;
+    updatePayload.lastTouchedDateKey = clientDateKey;
+    
+    const existingTask = await DailyTask.findOne({ _id: taskId, userId }).lean();
     
     if (data.isCompleted === true) {
-      updateData.lastCompletedAt = new Date();
-      updateData.lastCompletedDateKey = clientDateKey;
+      updatePayload.lastCompletedAt = new Date();
+      updatePayload.lastCompletedDateKey = clientDateKey;
       await UserActivityService.recordActivity(userId);
+      DailyTaskService.logAudit("TASK_COMPLETED", userId, taskId, { title: data.title || existingTask?.title || "Untitled Task" }).catch(() => {});
     } else if (data.isCompleted === false) {
-      // Unchecking should clear today's completed key
-      updateData.lastCompletedDateKey = null;
-      updateData.lastCompletedAt = null;
+      updatePayload.lastCompletedDateKey = null;
+      updatePayload.lastCompletedAt = null;
+      DailyTaskService.logAudit("TASK_UNCHECKED", userId, taskId, { title: data.title || existingTask?.title || "Untitled Task" }).catch(() => {});
     }
 
     const task = await DailyTask.findOneAndUpdate(
       { _id: taskId, userId },
-      { $set: updateData },
+      { $set: updatePayload },
       { returnDocument: 'after' }
     ).lean();
     
-    // Sync to Journal history
-    if (task) await DailyTaskService.syncToJournal(userId, clientDateKey);
+    if (task && clientDateKey === todayKey) {
+      await DailyTaskService.syncToJournal(userId, todayKey);
+    }
     
-    return task ? JSON.parse(JSON.stringify(task)) : null;
+    return { success: true, task: task ? JSON.parse(JSON.stringify(task)) : null };
   }
 
   static async deleteTask(userId: string, taskId: string) {

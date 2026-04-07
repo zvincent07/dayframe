@@ -5,11 +5,11 @@ export interface IWorkoutEntry {
   sets?: number;
   reps?: string;
   rpe?: number;
-  weight?: number;
+  weight?: any;
   history?: {
     set: number;
-    targetWeight?: number;
-    actualWeight?: number;
+    targetWeight?: any;
+    actualWeight?: any;
     targetReps?: number;
     actualReps?: number;
     completed?: boolean;
@@ -36,12 +36,12 @@ const JournalWorkoutsSchema = new Schema<IJournalWorkouts>(
         sets: Number,
         reps: String,
         rpe: Number,
-        weight: Number,
+        weight: { type: Schema.Types.Mixed },
         history: [
           {
             set: { type: Number, required: true },
-            targetWeight: Number,
-            actualWeight: Number,
+            targetWeight: { type: Schema.Types.Mixed },
+            actualWeight: { type: Schema.Types.Mixed },
             targetReps: Number,
             actualReps: Number,
             completed: Boolean,
@@ -56,6 +56,11 @@ const JournalWorkoutsSchema = new Schema<IJournalWorkouts>(
 );
 
 JournalWorkoutsSchema.index({ userId: 1, date: 1 }, { unique: true });
+
+// Force re-registration in dev to ensure schema changes are picked up
+if (process.env.NODE_ENV === "development" && mongoose.models.JournalWorkouts) {
+  delete (mongoose.models as any).JournalWorkouts;
+}
 
 export const JournalWorkouts: Model<IJournalWorkouts> =
   mongoose.models.JournalWorkouts ||

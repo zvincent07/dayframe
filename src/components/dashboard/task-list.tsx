@@ -1,7 +1,7 @@
 'use client';
 
 import { useOptimistic, useTransition, useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -55,8 +55,13 @@ export function TaskList({ initialTasks, initialDateStr }: { initialTasks: Task[
   const [optimisticTasks, addOptimistic] = useOptimistic(initialTasks, taskReducer);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDuration, setNewTaskDuration] = useState('');
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDuration, setEditDuration] = useState('');
   const [isPending, startTransition] = useTransition();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const activeTab = searchParams.get('tab') || 'today';
   const [historyDate, setHistoryDate] = useState<Date>(() => {
     const param = searchParams.get('historyDate');
     if (param) {
@@ -178,6 +183,62 @@ export function TaskList({ initialTasks, initialDateStr }: { initialTasks: Task[
     });
   };
 
+  const handleEditStart = (task: Task | HistoryItem) => {
+    setEditingTaskId(task._id);
+    setEditTitle(task.title);
+    setEditDuration(task.duration);
+  };
+
+  const handleEditCancel = () => {
+    setEditingTaskId(null);
+    setEditTitle('');
+    setEditDuration('');
+  };
+
+  const handleEditSave = (taskId: string, isHistory: boolean = false) => {
+    if (!editTitle.trim()) return;
+    const dateStr = isHistory ? format(historyDate, 'yyyy-MM-dd') : undefined;
+    
+    startTransition(async () => {
+      const result = await updateTask(taskId, { 
+        title: editTitle.trim(), 
+        duration: editDuration,
+        completedDateKey: dateStr 
+      });
+      if (result.success) {
+        toast.success('Task updated');
+        setEditingTaskId(null);
+        if (isHistory) fetchHistory();
+        router.refresh();
+      } else {
+        toast.error('Failed to update task');
+      }
+    });
+  };
+
+  const handleHistoryToggle = (taskId: string, currentCompleted: boolean) => {
+    const dateStr = format(historyDate, 'yyyy-MM-dd');
+    const task = historyAll.find(t => t._id === taskId);
+    if (!task) return;
+
+    startTransition(async () => {
+      const result = await updateTask(taskId, { 
+        isCompleted: !currentCompleted, 
+        completedDateKey: dateStr,
+        title: task.title 
+      });
+      if (!result.success) {
+        toast.error('Failed to update task history');
+      } else {
+        fetchHistory();
+        const todayStr = initialDateStr || format(new Date(), 'yyyy-MM-dd');
+        if (dateStr === todayStr) {
+           router.refresh();
+        }
+      }
+    });
+  };
+
   const tasks = optimisticTasks;
   const filteredHistory = historyAll.filter((t) => t.isCompleted === (historyFilter === 'completed'));
   
@@ -210,10 +271,20 @@ export function TaskList({ initialTasks, initialDateStr }: { initialTasks: Task[
     });
   };
 
+  const isToday = format(historyDate, "yyyy-MM-dd") === (initialDateStr || format(new Date(), "yyyy-MM-dd"));
+
   return (
     <Card className="flex flex-col h-[450px] overflow-hidden p-0 border border-border/50 bg-card">
       <CardContent className="p-0 flex-1 flex flex-col min-h-0">
-        <Tabs defaultValue="today" className="w-full flex-1 min-h-0 flex flex-col">
+        <Tabs 
+          value={activeTab} 
+          onValueChange={(v) => {
+            const params = new URLSearchParams(searchParams.toString());
+            params.set('tab', v);
+            router.push(`?${params.toString()}`);
+          }} 
+          className="w-full flex-1 min-h-0 flex flex-col"
+        >
           <div className="flex shrink-0 flex-col gap-3 border-b border-border/50 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4">
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
               <h3 className="flex shrink-0 items-center gap-2 text-base font-semibold sm:text-lg">
@@ -290,16 +361,45 @@ export function TaskList({ initialTasks, initialDateStr }: { initialTasks: Task[
                     className="size-5 shrink-0 rounded-full border border-zinc-500 bg-transparent hover:border-zinc-400 data-[state=checked]:bg-emerald-500/20 data-[state=checked]:border-emerald-500/50 data-[state=checked]:text-emerald-500 data-[state=checked]:hover:bg-emerald-500/30"
                     aria-label={task.isCompleted ? "Mark as incomplete" : "Mark as complete"}
                   />
-                  <span
-                    className={`min-w-0 flex-1 truncate text-sm font-medium transition-all ${task.isCompleted ? 'line-through text-zinc-600 dark:text-zinc-500' : 'text-foreground'}`}
-                  >
-                    {task.title}
-                  </span>
-                  <span
-                    className={`shrink-0 font-mono text-xs tabular-nums ${task.isCompleted ? 'text-zinc-600 dark:text-zinc-500' : 'text-zinc-500 dark:text-zinc-500'}`}
-                  >
-                    {task.duration || '—'}
-                  </span>
+                  {editingTaskId === task._id ? (
+                    <div className="flex flex-1 items-center gap-2 min-w-0">
+                      <input
+                        type="text"
+                        className="flex-1 min-w-0 bg-muted/50 border border-border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleEditSave(task._id)}
+                        autoFocus
+                      />
+                      <input
+                        type="text"
+                        className="w-12 bg-muted/50 border border-border rounded px-2 py-1 text-xs font-mono tabular-nums focus:outline-none focus:ring-1 focus:ring-emerald-500 text-center"
+                        value={editDuration}
+                        onChange={(e) => setEditDuration(e.target.value)}
+                        placeholder="0m"
+                        onKeyDown={(e) => e.key === 'Enter' && handleEditSave(task._id)}
+                      />
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={handleEditCancel}>Cancel</Button>
+                        <Button size="sm" className="h-7 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => handleEditSave(task._id)}>Save</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <span
+                        className={`min-w-0 flex-1 truncate text-sm font-medium transition-all cursor-pointer ${task.isCompleted ? 'line-through text-zinc-600 dark:text-zinc-500' : 'text-foreground'}`}
+                        onClick={() => handleEditStart(task)}
+                      >
+                        {task.title}
+                      </span>
+                      <span
+                        className={`shrink-0 font-mono text-xs tabular-nums cursor-pointer ${task.isCompleted ? 'text-zinc-600 dark:text-zinc-500' : 'text-zinc-500 dark:text-zinc-500'}`}
+                        onClick={() => handleEditStart(task)}
+                      >
+                        {task.duration || '—'}
+                      </span>
+                    </>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -324,14 +424,18 @@ export function TaskList({ initialTasks, initialDateStr }: { initialTasks: Task[
                   aria-label="New task title"
                 />
                 <div className="flex items-center gap-1.5 pr-1.5">
-                  <button
-                    type="button"
-                    className="flex items-center gap-1 px-2 py-1 rounded-md bg-muted/40 hover:bg-muted text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label="Set duration"
-                  >
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>{newTaskDuration?.trim() ? newTaskDuration : '0m'}</span>
-                  </button>
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/40 hover:bg-muted transition-colors focus-within:bg-muted focus-within:ring-1 focus-within:ring-zinc-600">
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      className="w-8 bg-transparent border-none p-0 text-xs text-foreground placeholder:text-zinc-600 focus:outline-none focus:ring-0 font-mono"
+                      placeholder="0m"
+                      value={newTaskDuration}
+                      onChange={(e) => setNewTaskDuration(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+                      aria-label="New task duration"
+                    />
+                  </div>
                   <button
                     type="button"
                     className="p-1.5 text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/10 rounded-md transition-all"
@@ -379,16 +483,58 @@ export function TaskList({ initialTasks, initialDateStr }: { initialTasks: Task[
               ) : (
                 <ul>
                   {filteredHistory.map((t) => (
-                    <li key={t._id} className="h-10 flex items-center justify-between gap-2 rounded-md px-2 border-b border-border/50 last:border-0">
-                      <span className="text-sm text-foreground flex items-center gap-2">
-                        {historyFilter === 'completed' ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500/50" />
-                        ) : (
-                          <Circle className="w-4 h-4 text-zinc-600" />
+                    <li key={t._id} className="h-10 flex items-center justify-between gap-2 rounded-md px-2 border-b border-border/50 last:border-0 hover:bg-muted/30">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        {!isToday && (
+                          <Checkbox
+                            checked={t.isCompleted}
+                            onCheckedChange={() => handleHistoryToggle(t._id, t.isCompleted)}
+                            className="size-4 shrink-0 rounded-full border border-zinc-500 bg-transparent hover:border-zinc-400 data-[state=checked]:bg-emerald-500/20 data-[state=checked]:border-emerald-500/50 data-[state=checked]:text-emerald-500 data-[state=checked]:hover:bg-emerald-500/30"
+                            aria-label={t.isCompleted ? "Mark as incomplete" : "Mark as complete"}
+                          />
                         )}
-                        {t.title}
-                      </span>
-                      <span className="font-mono text-xs text-muted-foreground">{t.duration || '—'}</span>
+                        {editingTaskId === t._id ? (
+                          <div className="flex flex-1 items-center gap-2 min-w-0 py-1">
+                            <input
+                              type="text"
+                              className="flex-1 min-w-0 bg-muted/50 border border-border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                              value={editTitle}
+                              onChange={(e) => setEditTitle(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && handleEditSave(t._id, true)}
+                              autoFocus
+                            />
+                            <input
+                              type="text"
+                              className="w-12 bg-muted/50 border border-border rounded px-2 py-1 text-xs font-mono tabular-nums focus:outline-none focus:ring-1 focus:ring-emerald-500 text-center"
+                              value={editDuration}
+                              onChange={(e) => setEditDuration(e.target.value)}
+                              placeholder="0m"
+                              onKeyDown={(e) => e.key === 'Enter' && handleEditSave(t._id, true)}
+                            />
+                            <div className="flex items-center gap-1">
+                              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={handleEditCancel}>Cancel</Button>
+                              <Button size="sm" className="h-7 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => handleEditSave(t._id, true)}>Save</Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <span 
+                              className={`text-sm truncate font-medium cursor-pointer ${t.isCompleted ? 'line-through text-zinc-600' : 'text-foreground'}`}
+                              onClick={() => handleEditStart(t)}
+                            >
+                              {t.title}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      {!editingTaskId && (
+                        <span 
+                          className="font-mono text-xs tabular-nums text-muted-foreground shrink-0 cursor-pointer"
+                          onClick={() => handleEditStart(t)}
+                        >
+                          {t.duration || '—'}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>

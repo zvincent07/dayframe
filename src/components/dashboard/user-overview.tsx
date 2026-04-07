@@ -48,7 +48,7 @@ export function UserOverview({
   initialGeminiKey?: { exists: boolean; masked: string | null };
 }) {
   const router = useRouter()
-  const [timeframe, setTimeframe] = useState<"7d" | "30d" | "1y">("7d")
+  const [timeframe, setTimeframe] = useState<"7d" | "30d" | "1y" | "all">("7d")
   const [apiKey] = useState("")
   const [insight, setInsight] = useState("")
   const [insightData, setInsightData] = useState<{ win?: string; trend?: string; action?: string } | null>(null)
@@ -69,7 +69,7 @@ export function UserOverview({
   const [spendingData, setSpendingData] = useState<{ day: string; amount: number }[]>([])
   const [currencyCode, setCurrencyCode] = useState<string>("USD")
   const [taskWeek, setTaskWeek] = useState<{ name: string; value: number }[]>([])
-  const [taskBreakdown, setTaskBreakdown] = useState<Array<{ title: string; completed: number; missed: number; total: number }>>([])
+  const [taskBreakdown, setTaskBreakdown] = useState<Array<{ title: string; completed: number; missed: number; total: number; duration: string }>>([])
   const [loadingSeries, setLoadingSeries] = useState(false)
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -230,6 +230,7 @@ export function UserOverview({
             <SelectItem value="7d">Last 7 Days</SelectItem>
             <SelectItem value="30d">Last 30 Days</SelectItem>
             <SelectItem value="1y">This Year</SelectItem>
+            <SelectItem value="all">All Time</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -645,9 +646,12 @@ export function UserOverview({
                       <div className="flex-1 relative h-2 bg-muted/40 rounded-full overflow-hidden">
                         <div className="absolute top-0 left-0 bg-emerald-500 h-full rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
                       </div>
-                      <div className="w-24 text-right text-xs text-muted-foreground flex flex-col items-end">
+                      <div className="w-24 text-right text-xs text-muted-foreground flex flex-col items-end shrink-0">
                         <span className="font-semibold text-emerald-400">{t.completed}x done</span>
-                        {t.missed > 0 && <span className="opacity-70">{t.missed}x missed</span>}
+                        <div className="flex flex-col items-end opacity-70">
+                          {t.missed > 0 && <span>{t.missed}x missed</span>}
+                          {t.duration && <span className="font-mono text-[10px] mt-0.5">{t.duration}</span>}
+                        </div>
                       </div>
                     </div>
                   );

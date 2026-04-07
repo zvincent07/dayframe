@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   LogIn, LogOut, KeyRound, Shield, ShieldOff, Pencil, Trash2,
   Plus, BookOpen, RefreshCw, type LucideIcon, Clock, Globe, Activity,
+  CheckCircle, Dumbbell, ShoppingBag, Utensils, Quote, Calendar, Soup
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getMyActivity } from "@/actions/security";
@@ -36,6 +37,14 @@ const ACTION_META: Record<string, { icon: LucideIcon; label: string; color: stri
   JOURNAL_CREATED: { icon: BookOpen, label: "Journal entry created", color: "text-emerald-500" },
   JOURNAL_UPDATED: { icon: Pencil, label: "Journal entry updated", color: "text-blue-500" },
   PREFERENCES_UPDATED: { icon: RefreshCw, label: "Preferences updated", color: "text-blue-500" },
+  TASK_COMPLETED: { icon: CheckCircle, label: "Task completed", color: "text-emerald-500" },
+  TASK_UNCHECKED: { icon: Activity, label: "Task unchecked", color: "text-muted-foreground" },
+  WORKOUT_FINISHED: { icon: Dumbbell, label: "Workout finished", color: "text-orange-600" },
+  WEEKLY_FOCUS_UPDATED: { icon: Calendar, label: "Weekly focus set", color: "text-blue-500" },
+  QUOTE_CREATED: { icon: Quote, label: "Inspiration added", color: "text-purple-500" },
+  QUOTE_DELETED: { icon: Quote, label: "Inspiration removed", color: "text-rose-400" },
+  SPENDING_LOGGED: { icon: ShoppingBag, label: "Expense recorded", color: "text-amber-600" },
+  FOOD_LOGGED: { icon: Soup, label: "Nutrition logged", color: "text-orange-500" },
 };
 
 function getActionMeta(action: string) {
@@ -60,6 +69,35 @@ function formatTime(iso: string) {
 
 function formatDetail(details: Record<string, unknown> | null): string | null {
   if (!details) return null;
+  if (details.title) return String(details.title);
+
+  // Weekly Focus
+  if (details.day && details.focus) {
+    const day = String(details.day).charAt(0).toUpperCase() + String(details.day).slice(1);
+    return `${day}: ${details.focus}`;
+  }
+
+  // Quotes
+  if (details.content && typeof details.content === 'string') {
+    const clean = details.content.replace(/<[^>]*>?/gm, ''); // Remove HTML if present
+    return clean.length > 60 ? `"${clean.substring(0, 60)}..."` : `"${clean}"`;
+  }
+
+  // Spending
+  if (details.items && typeof details.items === 'string') {
+    return details.items;
+  }
+
+  // Food/Nutrition
+  if (details.calories !== undefined) {
+    return `Estimated ${details.calories} calories logged`;
+  }
+
+  if (details.exercises && Array.isArray(details.exercises) && details.exercises.length > 0) {
+    const list = details.exercises.slice(0, 2).join(", ");
+    const more = details.exercises.length > 2 ? ` (+${details.exercises.length - 2} more)` : "";
+    return `${list}${more}`;
+  }
   if (details.provider) return `via ${String(details.provider)}`;
   if (details.method) return String(details.method);
   return null;

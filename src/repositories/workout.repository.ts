@@ -229,10 +229,18 @@ export class WorkoutRepository {
             {
               $project: {
                 w: {
-                  $ifNull: [
-                    "$workouts.history.actualWeight",
-                    { $ifNull: ["$workouts.history.targetWeight", 0] },
-                  ],
+                  $let: {
+                    vars: {
+                      val: { $ifNull: ["$workouts.history.actualWeight", { $ifNull: ["$workouts.history.targetWeight", 0] }] }
+                    },
+                    in: {
+                      $cond: {
+                        if: { $isNumber: "$$val" },
+                        then: "$$val",
+                        else: 0
+                      }
+                    }
+                  }
                 },
                 r: {
                   $ifNull: [

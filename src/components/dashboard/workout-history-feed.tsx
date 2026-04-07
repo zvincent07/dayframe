@@ -33,7 +33,8 @@ function computeSummary(doc: WorkoutDoc) {
       const didComplete = !!h?.completed || h?.actualWeight != null || h?.actualReps != null;
       if (didComplete) {
         completedSets += 1;
-        const weight = typeof h.actualWeight === "number" ? h.actualWeight : (typeof h.targetWeight === "number" ? h.targetWeight : 0);
+        const rawW = h.actualWeight ?? h.targetWeight;
+        const weight = typeof rawW === "number" ? rawW : 0;
         const reps = typeof h.actualReps === "number" ? h.actualReps : (typeof h.targetReps === "number" ? h.targetReps : 0);
         volume += weight * reps;
       }
@@ -55,6 +56,27 @@ function formatDatePretty(dateStr: string) {
   } catch {
     return dateStr;
   }
+}
+
+function formatWeight(weight: any, exerciseName?: string): string {
+  if (weight == null || weight === "" || weight === "—") return "—";
+  
+  const s = String(weight).toLowerCase().trim();
+  
+  // Explicit BW/MAX labels
+  if (s === "bw" || s === "b") return "BW";
+  if (s === "max" || s === "full") return "MAX";
+  
+  // If numeric 0 and it's likely a bodyweight exercise, return BW
+  const num = Number(s);
+  if (num === 0 && exerciseName) {
+    const name = exerciseName.toLowerCase();
+    const bwKeywords = ["pull-up", "pullup", "chin-up", "chinup", "dip", "push-up", "pushup", "plank", "muscle-up", "archer"];
+    if (bwKeywords.some(k => name.includes(k))) return "BW";
+  }
+  
+  if (isNaN(num)) return weight;
+  return `${s}kg`;
 }
 
 function WorkoutDayDetailContent({ doc }: { doc: WorkoutDoc }) {
@@ -100,7 +122,7 @@ function WorkoutDayDetailContent({ doc }: { doc: WorkoutDoc }) {
                     >
                       <span className="text-muted-foreground">Set {String(h?.set ?? sidx + 1)}</span>
                       <span className="font-medium tabular-nums text-foreground">
-                        {String(wgt)} kg × {String(reps)} reps
+                        {formatWeight(wgt, String(w.exercise))} × {String(reps)}
                       </span>
                       {done ? (
                         <Badge variant="secondary" className="text-[10px]">
@@ -323,20 +345,23 @@ export function WorkoutHistoryFeed({ initialHistory, isLoading }: { initialHisto
                   ? w.history.filter((h) => h?.completed || h?.actualWeight != null || h?.actualReps != null)
                   : [];
                 if (sets.length === 0) return null;
-                const best = sets.reduce<{ weight: number; reps: number } | null>((acc, h) => {
-                  const weight = typeof h.actualWeight === "number" ? h.actualWeight : (typeof h.targetWeight === "number" ? h.targetWeight : 0);
+                const best = sets.reduce<{ weight: any; reps: number } | null>((acc, h) => {
+                  const rawW = h.actualWeight ?? h.targetWeight ?? 0;
+                  const weight = rawW;
                   const reps = typeof h.actualReps === "number" ? h.actualReps : (typeof h.targetReps === "number" ? h.targetReps : 0);
                   if (!acc) return { weight, reps };
-                  const accVol = acc.weight * acc.reps;
-                  const vol = weight * reps;
-                  return vol > accVol ? { weight, reps } : acc;
+                  const accNum = typeof acc.weight === "number" ? acc.weight : 0;
+                  const wNum = typeof weight === "number" ? weight : 0;
+                  const accVol = accNum * acc.reps;
+                  const vol = wNum * reps;
+                  return vol >= accVol ? { weight, reps } : acc;
                 }, null);
                 return (
                   <div key={`${doc._id}-${idx}`} className="mb-4 last:mb-0">
                     <h4 className="text-sm font-semibold text-foreground mb-1">{String(w.exercise)}</h4>
                     {best && (best.weight > 0 || best.reps > 0) && (
                       <p className="mb-2 text-[11px] text-muted-foreground">
-                        Best set: {String(best.weight)}kg × {String(best.reps)}
+                        Best set: {formatWeight(best.weight, String(w.exercise))} × {String(best.reps)}
                       </p>
                     )}
                     <div className="flex flex-wrap gap-1.5">
@@ -348,7 +373,7 @@ export function WorkoutHistoryFeed({ initialHistory, isLoading }: { initialHisto
                             key={`${doc._id}-${idx}-set-${sidx}`}
                             className="inline-flex items-center rounded border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
                           >
-                            {String(weight)}kg × {String(reps)}
+                            {formatWeight(weight, String(w.exercise))} × {String(reps)}
                           </span>
                         );
                       })}

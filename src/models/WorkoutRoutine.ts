@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 
 export interface IWorkoutRoutineExercise {
+  id?: string;
   exerciseId: string;
   targetSets: number;
   targetReps: string;
@@ -20,6 +21,7 @@ export interface IWorkoutRoutine extends Document {
 
 const WorkoutRoutineExerciseSchema = new Schema<IWorkoutRoutineExercise>(
   {
+    id: { type: String },
     exerciseId: { type: String, required: true },
     targetSets: { type: Number, required: true },
     targetReps: { type: String, required: true },

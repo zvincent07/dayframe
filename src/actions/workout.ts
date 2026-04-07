@@ -17,13 +17,13 @@ const workoutLogSchema = z.array(
     sets: z.number().optional(),
     reps: z.string().optional(),
     rpe: z.number().optional(),
-    weight: z.number().optional(),
+    weight: z.union([z.number(), z.string() ]).optional(),
     history: z
       .array(
         z.object({
           set: z.number().int().min(1),
-          targetWeight: z.number().optional(),
-          actualWeight: z.number().optional(),
+          targetWeight: z.union([z.number(), z.string()]).optional(),
+          actualWeight: z.union([z.number(), z.string()]).optional(),
           targetReps: z.number().optional(),
           actualReps: z.number().optional(),
           completed: z.boolean().optional(),

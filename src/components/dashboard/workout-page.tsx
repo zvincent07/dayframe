@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useRef, useTransition } from "react";
+import { createPortal } from "react-dom";
+import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -91,13 +93,17 @@ interface WorkoutPageProps {
   preferredUnits?: "metric" | "imperial";
 }
 
-const parseWeightPlan = (plan?: string | null): { weights: number[]; unit: "kg" | "lbs" } => {
+const parseWeightPlan = (plan?: string | null): { weights: (number | string)[]; unit: "kg" | "lbs" } => {
   if (!plan) return { weights: [], unit: "kg" };
   const s = String(plan).toLowerCase();
-  const matches = [...s.matchAll(/(\d+(?:\.\d+)?)(kg|lbs|lb|p|bp)?/g)];
-  const weights: number[] = [];
+  const matches = [...s.matchAll(/(\d+(?:\.\d+)?)(kg|lbs|lb|p|bp)?|(bw|max|full)/g)];
+  const weights: (number | string)[] = [];
   let unit: "kg" | "lbs" = "kg";
   for (const m of matches) {
+    if (m[3]) {
+      weights.push(m[3] === 'full' ? 'max' : m[3]);
+      continue;
+    }
     const value = parseFloat(m[1]);
     const suffix = (m[2] || "").toLowerCase();
     if (isNaN(value)) continue;
@@ -116,7 +122,7 @@ const parseWeightPlan = (plan?: string | null): { weights: number[]; unit: "kg" 
   return { weights, unit };
 };
 
-const getPlannedWeightForSet = (weights: number[], index: number): number | undefined => {
+const getPlannedWeightForSet = (weights: (number | string)[], index: number): number | string | undefined => {
   if (!weights.length) return undefined;
   if (index < weights.length) return weights[index];
   return weights[weights.length - 1];
@@ -140,6 +146,7 @@ function kgStorageStringToDisplayWeight(kgStr: string, weightUnit: "metric" | "i
   const t = String(kgStr || "").trim();
   if (!t) return "";
   if (t.toLowerCase() === "bw") return "bw";
+  if (t.toLowerCase() === "max") return "max";
   const kg = parseFloat(t);
   if (Number.isNaN(kg)) return kgStr;
   if (weightUnit === "imperial") {
@@ -152,6 +159,7 @@ function normalizeWeightInput(raw: string, exerciseId?: string, weightUnit: "met
   const s = String(raw || "").trim().toLowerCase();
   if (!s) return "";
   if (s === "b" || s === "bw") return "bw";
+  if (s === "max" || s === "full") return "max";
   if (s === "none") {
     const id = String(exerciseId || "").toLowerCase();
     const isBw = id.includes("pullup") || id.includes("chinup") || id.includes("pushup") || id.includes("dip") || id.includes("archer-pull");
@@ -193,6 +201,7 @@ function toKg(weightStr: string): number {
   const s = String(weightStr || "").trim().toLowerCase();
   if (!s) return 0;
   if (s === "bw") return 0;
+  if (s === "max") return 0;
   if (s.endsWith("bp")) {
     const p = parseFloat(s.replace(/[^0-9.]/g, ""));
     return isNaN(p) ? 0 : p * 10 * 0.453592;
@@ -213,6 +222,9 @@ const EXERCISES: Exercise[] = [
   // Pull (back / biceps)
   { id: "wg-pulldown", name: "Wide-Grip Pulldown", targetMuscle: "Lats", category: "pull" },
   { id: "closegrip-pulldown", name: "Close-Grip Pulldown", targetMuscle: "Lats / Mid Back", category: "pull" },
+  { id: "mag-neutral-pulldown", name: "Mag Grip Pulldown (Neutral)", targetMuscle: "Lats", category: "pull" },
+  { id: "mag-wide-pulldown", name: "Mag Grip Pulldown (Wide)", targetMuscle: "Lats", category: "pull" },
+  { id: "mag-close-pulldown", name: "Mag Grip Pulldown (Close)", targetMuscle: "Lats", category: "pull" },
   { id: "row-cable", name: "Seated Cable Row", targetMuscle: "Mid Back", category: "pull" },
   { id: "row-chest", name: "Chest-Supported Row", targetMuscle: "Upper Back", category: "pull" },
   { id: "row-barbell", name: "Barbell Row", targetMuscle: "Lats / Mid Back", category: "pull" },
@@ -220,12 +232,12 @@ const EXERCISES: Exercise[] = [
   { id: "row-singlearm-db", name: "Single-Arm DB Row", targetMuscle: "Lats", category: "pull" },
   { id: "tbar-row", name: "T-Bar Row", targetMuscle: "Mid Back", category: "pull" },
   { id: "seated-row", name: "Seated Row (Machine)", targetMuscle: "Mid Back", category: "pull" },
-  { id: "pullup", name: "Pull-Up / Chin-Up", targetMuscle: "Lats / Biceps", category: "pull" },
-  { id: "weighted-pullup", name: "Weighted Pull-Up", targetMuscle: "Lats / Biceps", category: "pull" },
+  { id: "pullup", name: "Pull-Up", targetMuscle: "Lats / Biceps", category: "pull" },
   { id: "chinup", name: "Chin-Up", targetMuscle: "Lats / Biceps", category: "pull" },
+  { id: "supinated-pull-up", name: "Supinated Pull-Up", targetMuscle: "Lats / Biceps", category: "pull" },
+  { id: "weighted-pullup", name: "Weighted Pull-Up", targetMuscle: "Lats / Biceps", category: "pull" },
   { id: "weighted-chinup", name: "Weighted Chin-Up", targetMuscle: "Lats / Biceps", category: "pull" },
   { id: "archer-pullup", name: "Archer Pull-Up", targetMuscle: "Lats / Biceps", category: "pull" },
-  { id: "wm-u-pulldown", name: "Wide / Mid / Under Pulldown", targetMuscle: "Lats / Mid Back", category: "pull" },
   { id: "singlearm-lat-pulldown", name: "Single-Arm Lat Pulldown", targetMuscle: "Lats", category: "pull" },
   { id: "row-singlearm-cable", name: "Single-Arm Cable Row", targetMuscle: "Lats / Mid Back", category: "pull" },
   { id: "lat-pullover", name: "Cable Pullover", targetMuscle: "Lats", category: "pull" },
@@ -234,6 +246,7 @@ const EXERCISES: Exercise[] = [
   { id: "reverse-fly", name: "Reverse Fly", targetMuscle: "Rear Delts", category: "pull" },
   { id: "curl-db", name: "DB Curl", targetMuscle: "Biceps", category: "pull" },
   { id: "curl-barbell", name: "Barbell Curl", targetMuscle: "Biceps", category: "pull" },
+  { id: "curl-machine", name: "Bicep Curl (Machine)", targetMuscle: "Biceps", category: "pull" },
   { id: "curl-incline-db", name: "Incline DB Curl", targetMuscle: "Biceps", category: "pull" },
   { id: "curl-hammer", name: "Hammer Curl", targetMuscle: "Brachialis", category: "pull" },
   { id: "preacher-curl", name: "Preacher Curl", targetMuscle: "Biceps", category: "pull" },
@@ -241,20 +254,24 @@ const EXERCISES: Exercise[] = [
   { id: "wrist-curl", name: "Wrist Curl", targetMuscle: "Forearms (Flexors)", category: "pull" },
   { id: "wrist-extension", name: "Wrist Extension", targetMuscle: "Forearms (Extensors)", category: "pull" },
 
-  // Push (chest / shoulders / triceps, incl. weighted bodyweight)
+  // Push (chest / shoulders / triceps)
   { id: "bench-flat", name: "Barbell Bench Press", targetMuscle: "Chest", category: "push" },
   { id: "bench-flat-db", name: "Flat DB Bench Press", targetMuscle: "Chest", category: "push" },
+  { id: "bench-machine", name: "Chest Press (Machine)", targetMuscle: "Chest", category: "push" },
+  { id: "bench-smith", name: "Smith Machine Bench Press", targetMuscle: "Chest", category: "push" },
   { id: "incline-db-bench", name: "Incline DB Bench Press", targetMuscle: "Upper Chest", category: "push" },
   { id: "incline-bench-barbell", name: "Incline Barbell Bench Press", targetMuscle: "Upper Chest", category: "push" },
+  { id: "incline-bench-smith", name: "Smith Machine Incline Press", targetMuscle: "Upper Chest", category: "push" },
   { id: "closegrip-bench", name: "Close-Grip Bench Press", targetMuscle: "Chest / Triceps", category: "push" },
   { id: "pushup", name: "Push-Up", targetMuscle: "Chest / Triceps", category: "push" },
   { id: "weighted-pushup", name: "Weighted Push-Up", targetMuscle: "Chest / Triceps", category: "push" },
   { id: "dip", name: "Parallel Bar Dips", targetMuscle: "Chest / Triceps", category: "push" },
-  { id: "dip-bw", name: "Bodyweight Dips", targetMuscle: "Chest / Triceps", category: "push" },
+  { id: "dip-assisted", name: "Assisted Dip (Machine)", targetMuscle: "Chest / Triceps", category: "push" },
   { id: "weighted-dip", name: "Weighted Dips", targetMuscle: "Chest / Triceps", category: "push" },
   { id: "ring-dip", name: "Ring Dips", targetMuscle: "Chest / Triceps / Shoulders", category: "push" },
   { id: "press-ohp", name: "Standing Barbell OHP", targetMuscle: "Shoulders", category: "push" },
   { id: "military-press", name: "Military Press", targetMuscle: "Shoulders", category: "push" },
+  { id: "shoulder-press-machine", name: "Shoulder Press (Machine)", targetMuscle: "Shoulders", category: "push" },
   { id: "seated-db-press", name: "Seated DB Shoulder Press", targetMuscle: "Shoulders", category: "push" },
   { id: "arnold-press", name: "Arnold Press", targetMuscle: "Shoulders", category: "push" },
   { id: "lat-raise-db", name: "DB Lateral Raise", targetMuscle: "Side Delts", category: "push" },
@@ -266,23 +283,23 @@ const EXERCISES: Exercise[] = [
   { id: "pushdown-straightbar", name: "Straight Bar Pushdown (SB)", targetMuscle: "Triceps", category: "push" },
   { id: "skullcrusher", name: "Skull Crusher", targetMuscle: "Triceps", category: "push" },
   { id: "overhead-tricep-ext", name: "Overhead Triceps Extension", targetMuscle: "Triceps", category: "push" },
-  { id: "overhead-tricep-ext-straightbar", name: "Straight Bar Overhead Extension (SB)", targetMuscle: "Triceps", category: "push" },
-  { id: "machine-press", name: "Machine Chest Press", targetMuscle: "Chest", category: "push" },
+  { id: "overhead-tricep-ext-machine", name: "Tricep Extension (Machine)", targetMuscle: "Triceps", category: "push" },
 
-  // Legs (quads / hamstrings / glutes / calves, incl. bodyweight)
+  // Legs (quads / hamstrings / glutes / calves)
   { id: "squat-hs", name: "Hack Squat", targetMuscle: "Quads", category: "legs" },
   { id: "back-squat", name: "Back Squat", targetMuscle: "Quads / Glutes", category: "legs" },
+  { id: "back-squat-smith", name: "Smith Machine Squat", targetMuscle: "Quads / Glutes", category: "legs" },
   { id: "front-squat", name: "Front Squat", targetMuscle: "Quads", category: "legs" },
   { id: "zercher-squat", name: "Zercher Squat", targetMuscle: "Quads / Glutes", category: "legs" },
   { id: "rdl", name: "Romanian Deadlift", targetMuscle: "Hamstrings", category: "legs" },
   { id: "deadlift-conv", name: "Conventional Deadlift", targetMuscle: "Posterior Chain", category: "legs" },
   { id: "deadlift-sumo", name: "Sumo Deadlift", targetMuscle: "Posterior Chain", category: "legs" },
-  { id: "leg-press", name: "Leg Press", targetMuscle: "Quads / Glutes", category: "legs" },
+  { id: "leg-press", name: "Leg Press (45 Degree)", targetMuscle: "Quads / Glutes", category: "legs" },
+  { id: "leg-press-horizontal", name: "Leg Press (Horizontal Machine)", targetMuscle: "Quads / Glutes", category: "legs" },
   { id: "leg-ext", name: "Leg Extension", targetMuscle: "Quads", category: "legs" },
   { id: "leg-ext-single", name: "Single-Leg Leg Extension (SL)", targetMuscle: "Quads", category: "legs" },
   { id: "leg-curl", name: "Lying Leg Curl", targetMuscle: "Hamstrings", category: "legs" },
   { id: "leg-curl-seated", name: "Seated Leg Curl", targetMuscle: "Hamstrings", category: "legs" },
-  { id: "leg-curl-hard", name: "Hard Leg Curl (All-Out Set)", targetMuscle: "Hamstrings", category: "legs" },
   { id: "good-morning", name: "Good Morning", targetMuscle: "Hamstrings / Glutes", category: "legs" },
   { id: "lunge-db", name: "DB Lunge", targetMuscle: "Quads / Glutes", category: "legs" },
   { id: "lunge-walking", name: "Walking Lunge", targetMuscle: "Quads / Glutes", category: "legs" },
@@ -294,20 +311,22 @@ const EXERCISES: Exercise[] = [
   { id: "glute-bridge-bw", name: "Bodyweight Glute Bridge", targetMuscle: "Glutes", category: "legs" },
   { id: "calf-raise", name: "Standing Calf Raise", targetMuscle: "Calves", category: "legs" },
   { id: "calf-raise-seated", name: "Seated Calf Raise", targetMuscle: "Calves", category: "legs" },
+  { id: "calf-press-legpress", name: "Calf Press (on Leg Press)", targetMuscle: "Calves", category: "legs" },
   { id: "adductor", name: "Adductor (Inner Thigh Machine)", targetMuscle: "Adductors", category: "legs" },
   { id: "abductor", name: "Abductor (Glute Machine)", targetMuscle: "Glutes / Abductors", category: "legs" },
   { id: "back-extension", name: "Back Extension", targetMuscle: "Lower Back / Glutes", category: "legs" },
 
-  // Core (incl. weighted and bodyweight)
+  // Core
   { id: "plank", name: "Plank", targetMuscle: "Core", category: "core" },
   { id: "side-plank", name: "Side Plank", targetMuscle: "Obliques", category: "core" },
   { id: "weighted-plank", name: "Weighted Plank", targetMuscle: "Core", category: "core" },
   { id: "hanging-leg-raise", name: "Hanging Leg Raise", targetMuscle: "Lower Abs", category: "core" },
   { id: "toes-to-bar", name: "Toes to Bar", targetMuscle: "Abs / Hip Flexors", category: "core" },
   { id: "cable-crunch", name: "Cable Crunch", targetMuscle: "Abs", category: "core" },
+  { id: "machine-crunch", name: "Ab Crunch (Machine)", targetMuscle: "Abs", category: "core" },
   { id: "ab-wheel", name: "Ab Wheel Rollout", targetMuscle: "Core", category: "core" },
   { id: "russian-twist", name: "Russian Twist", targetMuscle: "Obliques", category: "core" },
-  { id: "cable-rotation", name: "Cable Rotation", targetMuscle: "Obliques / Core", category: "core" },
+   { id: "cable-rotation", name: "Cable Rotation", targetMuscle: "Obliques / Core", category: "core" },
 ];
 
 interface RoutineEditorProps {
@@ -331,6 +350,25 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
     setRoutines((prev) =>
       prev.map((routine) =>
         routine.routineId === selectedRoutineId ? { ...routine, name } : routine
+      )
+    );
+  };
+
+  const onDragEnd = (result: DropResult) => {
+    if (!result.destination || !selectedRoutine) return;
+    
+    const { source, destination } = result;
+    if (source.index === destination.index) return;
+
+    const newExercises = Array.from(selectedRoutine.exercises);
+    const [removed] = newExercises.splice(source.index, 1);
+    newExercises.splice(destination.index, 0, removed);
+
+    setRoutines((prev) =>
+      prev.map((routine) =>
+        routine.routineId === selectedRoutineId
+          ? { ...routine, exercises: newExercises }
+          : routine
       )
     );
   };
@@ -399,6 +437,7 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
               exercises: [
                 ...routine.exercises,
                 {
+                  id: `ex-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
                   exerciseId: defaultExerciseId,
                   targetSets: 3,
                   targetReps: "8-10",
@@ -520,7 +559,7 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
           </div>
         </div>
         {/* Column headers – keep grid template in sync with rows below */}
-        <div className="hidden sm:grid sm:grid-cols-[auto_minmax(0,2.5fr)_minmax(0,0.7fr)_minmax(0,0.9fr)_minmax(0,0.7fr)_minmax(0,1.6fr)_minmax(0,0.8fr)] items-center gap-2 border-b border-border/60 pb-2 text-[11px] sm:text-xs text-muted-foreground uppercase tracking-wide">
+        <div className="hidden sm:grid sm:grid-cols-[auto_minmax(0,2.5fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,0.7fr)_minmax(0,1.8fr)_minmax(0,0.8fr)] items-center gap-2 border-b border-border/60 pb-2 text-[11px] sm:text-xs text-muted-foreground uppercase tracking-wide">
           <div className="flex items-center justify-center text-muted-foreground">
             <GripVertical className="h-3 w-3 opacity-0" aria-hidden />
           </div>
@@ -532,114 +571,157 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
           <span>Rest</span>
         </div>
 
-        {selectedRoutine?.exercises.map((exercise, index) => {
-          const exerciseMeta = EXERCISES.find((e) => e.id === exercise.exerciseId);
-          const optionsForRow =
-            exerciseFilter === "all"
-              ? EXERCISES
-              : EXERCISES.filter(
-                  (e) =>
-                    e.category === exerciseFilter || e.id === exercise.exerciseId
-                );
-          return (
-            <div
-              key={`${exercise.exerciseId}-${index}`}
-              className="flex flex-col gap-3 sm:grid sm:grid-cols-[auto_minmax(0,2.5fr)_minmax(0,0.7fr)_minmax(0,0.9fr)_minmax(0,0.7fr)_minmax(0,1.6fr)_minmax(0,0.8fr)] sm:items-center gap-2 border-b border-border/40 py-2 last:border-b-0"
-            >
-              <div className="flex items-center justify-center text-muted-foreground">
-                <GripVertical className="h-3 w-3 opacity-60" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <Select
-                  value={exercise.exerciseId}
-                  onValueChange={(val) => handleExerciseIdChange(index, val)}
-                >
-                  <SelectTrigger className="h-9 w-full justify-between">
-                    <SelectValue placeholder="Exercise" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(["push", "pull", "legs", "core"] as const).map((cat, catIdx, arr) => {
-                      const exercisesInCat = optionsForRow.filter((e) => e.category === cat);
-                      if (exercisesInCat.length === 0) return null;
-                      return (
-                        <SelectGroup key={cat}>
-                          <SelectLabel className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">{cat}</SelectLabel>
-                          {exercisesInCat.map((ex) => (
-                            <SelectItem key={ex.id} value={ex.id}>
-                              {ex.name}
-                            </SelectItem>
-                          ))}
-                          {catIdx < arr.length - 1 && <SelectSeparator />}
-                        </SelectGroup>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-                <span className="text-[11px] text-muted-foreground">
-                  {exerciseMeta?.targetMuscle}
-                </span>
-              </div>
+        <DragDropContext onDragEnd={onDragEnd}>
+          <Droppable droppableId="exercises">
+            {(provided) => (
+              <div 
+                {...provided.droppableProps}
+                ref={provided.innerRef}
+                className="space-y-0"
+              >
+                {selectedRoutine?.exercises.map((exercise, index) => {
+                  const exId = exercise.id || `${selectedRoutineId}-ex-${index}`;
+                  const exerciseMeta = EXERCISES.find((e) => e.id === exercise.exerciseId);
+                  const optionsForRow =
+                    exerciseFilter === "all"
+                      ? EXERCISES
+                      : EXERCISES.filter(
+                          (e) =>
+                            e.category === exerciseFilter || e.id === exercise.exerciseId
+                        );
 
-              <input
-                type="number"
-                min={1}
-                className="h-9 w-full rounded-md border border-border/60 bg-background px-2 text-xs"
-                value={exercise.targetSets}
-                onChange={(e) =>
-                  handleExerciseChange(index, "targetSets", Number(e.target.value) || 0)
-                }
-              />
-              <input
-                type="text"
-                className="h-9 w-full rounded-md border border-border/60 bg-background px-2 text-xs"
-                value={exercise.targetReps}
-                onChange={(e) => handleExerciseChange(index, "targetReps", e.target.value)}
-              />
-              <input
-                type="number"
-                min={5}
-                max={10}
-                className="h-9 w-full rounded-md border border-border/60 bg-background px-2 text-xs"
-                value={exercise.targetRPE}
-                onChange={(e) =>
-                  handleExerciseChange(index, "targetRPE", Number(e.target.value) || 0)
-                }
-              />
-              <div className="flex flex-col gap-1 w-full">
-                <input
-                  type="text"
-                  className="h-9 w-full rounded-md border border-border/60 bg-background px-2 text-xs"
-                  placeholder="e.g. 60 70 80"
-                  value={exercise.targetWeight ?? ""}
-                  onChange={(e) => handleExerciseChange(index, "targetWeight", e.target.value)}
-                />
-                <div className="flex items-center gap-1 pl-1">
-                  <button type="button" onClick={() => handleAppendWeight(index, exercise.targetWeight ?? "", 2.5)} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-emerald-500/20 hover:text-emerald-400 border border-border/30 transition-colors">+2.5</button>
-                  <button type="button" onClick={() => handleAppendWeight(index, exercise.targetWeight ?? "", 5)} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-emerald-500/20 hover:text-emerald-400 border border-border/30 transition-colors">+5</button>
-                  <button type="button" onClick={() => handleAppendWeight(index, exercise.targetWeight ?? "", 10)} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-emerald-500/20 hover:text-emerald-400 border border-border/30 transition-colors">+10</button>
-                  <button type="button" onClick={() => handleUndoWeight(index)} className="text-[10px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-red-500/20 hover:text-red-400 border border-border/30 transition-colors" title="Undo Increment">↺</button>
-                </div>
+                  const renderExerciseContent = (draggableProvided: any, snapshot: any) => (
+                    <div
+                      ref={draggableProvided.innerRef}
+                      {...draggableProvided.draggableProps}
+                      style={{
+                        ...draggableProvided.draggableProps.style,
+                      }}
+                      className={`flex flex-col gap-3 sm:grid sm:grid-cols-[auto_minmax(0,2.5fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,0.7fr)_minmax(0,1.8fr)_minmax(0,0.8fr)] sm:items-center gap-2 border-b border-border/40 py-2 last:border-b-0 transition-colors ${
+                        snapshot.isDragging 
+                          ? 'bg-zinc-900 border border-zinc-700/50 shadow-2xl rounded-lg h-fit z-[9999] opacity-100 ring-2 ring-emerald-500/20' 
+                          : 'bg-transparent'
+                      }`}
+                    >
+                      <div 
+                        {...draggableProvided.dragHandleProps}
+                        className="flex items-center justify-center text-muted-foreground cursor-grab active:cursor-grabbing hover:text-emerald-500 transition-colors px-1"
+                      >
+                        <GripVertical className="h-4 w-4 opacity-100" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <Select
+                          value={exercise.exerciseId}
+                          onValueChange={(val) => handleExerciseIdChange(index, val)}
+                        >
+                          <SelectTrigger className="h-9 w-full justify-between border-border/60 bg-background/60">
+                            <SelectValue placeholder="Exercise" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(["push", "pull", "legs", "core"] as const).map((cat, catIdx, arr) => {
+                              const exercisesInCat = optionsForRow.filter((e) => e.category === cat);
+                              if (exercisesInCat.length === 0) return null;
+                              return (
+                                <SelectGroup key={cat}>
+                                  <SelectLabel className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">{cat}</SelectLabel>
+                                  {exercisesInCat.map((ex) => (
+                                    <SelectItem key={ex.id} value={ex.id}>
+                                      {ex.name}
+                                    </SelectItem>
+                                  ))}
+                                  {catIdx < arr.length - 1 && <SelectSeparator />}
+                                </SelectGroup>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                        <span className="text-[11px] text-muted-foreground px-1">
+                          {exerciseMeta?.targetMuscle}
+                        </span>
+                      </div>
+
+                      <input
+                        type="number"
+                        min={1}
+                        className="h-9 w-full rounded-md border border-border/60 bg-background/60 px-2 text-xs"
+                        value={exercise.targetSets}
+                        onChange={(e) =>
+                          handleExerciseChange(index, "targetSets", Number(e.target.value) || 0)
+                        }
+                      />
+                      <input
+                        type="text"
+                        className="h-9 w-full rounded-md border border-border/60 bg-background/60 px-2 text-xs"
+                        value={exercise.targetReps}
+                        onChange={(e) => handleExerciseChange(index, "targetReps", e.target.value)}
+                      />
+                      <input
+                        type="number"
+                        min={5}
+                        max={10}
+                        className="h-9 w-full rounded-md border border-border/60 bg-background/60 px-2 text-xs"
+                        value={exercise.targetRPE}
+                        onChange={(e) =>
+                          handleExerciseChange(index, "targetRPE", Number(e.target.value) || 0)
+                        }
+                      />
+                      <div className="flex flex-col gap-1 w-full">
+                        <input
+                          type="text"
+                          className="h-9 w-full rounded-md border border-border/60 bg-background/60 px-2 text-xs"
+                          placeholder="e.g. 60 70 80 or max"
+                          value={exercise.targetWeight ?? ""}
+                          onChange={(e) => handleExerciseChange(index, "targetWeight", e.target.value)}
+                        />
+                        <div className="flex items-center gap-1 pl-1">
+                          <button type="button" onClick={() => handleAppendWeight(index, exercise.targetWeight ?? "", 2.5)} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-emerald-500/20 hover:text-emerald-400 border border-border/30 transition-colors">+2.5</button>
+                          <button type="button" onClick={() => handleAppendWeight(index, exercise.targetWeight ?? "", 5)} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-emerald-500/20 hover:text-emerald-400 border border-border/30 transition-colors">+5</button>
+                          <button type="button" onClick={() => handleExerciseChange(index, "targetWeight", "max")} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-emerald-500/20 hover:text-emerald-400 border border-border/30 transition-colors">Max</button>
+                          <button type="button" onClick={() => handleUndoWeight(index)} className="text-[10px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-red-500/20 hover:text-red-400 border border-border/30 transition-colors" title="Undo Increment">↺</button>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-start gap-2">
+                        <input
+                          type="text"
+                          className="h-9 w-full rounded-md border border-border/60 bg-background/60 px-2 text-xs"
+                          value={exercise.restTime}
+                          onChange={(e) => handleExerciseChange(index, "restTime", e.target.value)}
+                        />
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => handleRemoveExercise(index)}
+                        >
+                          ×
+                        </Button>
+                      </div>
+                    </div>
+                  );
+
+                  return (
+                    <Draggable key={exId} draggableId={exId} index={index}>
+                      {(provided, snapshot) => {
+                        const child = renderExerciseContent(provided, snapshot);
+                        if (snapshot.isDragging) {
+                          return createPortal(
+                            <div className="dayframe-dnd-portal fixed inset-0 pointer-events-none z-[9999]">
+                              {child}
+                            </div>,
+                            document.body
+                          );
+                        }
+                        return child;
+                      }}
+                    </Draggable>
+                  );
+                })}
+                {provided.placeholder}
               </div>
-              <div className="flex items-center justify-start gap-2">
-                <input
-                  type="text"
-                  className="h-9 w-full rounded-md border border-border/60 bg-background px-2 text-xs"
-                  value={exercise.restTime}
-                  onChange={(e) => handleExerciseChange(index, "restTime", e.target.value)}
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                  onClick={() => handleRemoveExercise(index)}
-                >
-                  ×
-                </Button>
-              </div>
-            </div>
-          );
-        })}
+            )}
+          </Droppable>
+        </DragDropContext>
 
         {selectedRoutine?.exercises.length === 0 && (
           <p className="text-xs text-muted-foreground">
@@ -1566,7 +1648,9 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
         const history = sessionEx.sets.map((set, i) => ({
           set: i + 1,
           targetWeight: getPlannedWeightForSet(targetWeights, i),
-          actualWeight: set.actualWeight && set.actualWeight.trim() !== "" ? Number(set.actualWeight) : undefined,
+          actualWeight: set.actualWeight && set.actualWeight.trim() !== "" 
+            ? (isNaN(Number(set.actualWeight)) ? set.actualWeight.toLowerCase() : Number(set.actualWeight)) 
+            : undefined,
           targetReps: targetRepsNumber,
           actualReps: set.actualReps && set.actualReps.trim() !== "" ? Number(set.actualReps) : undefined,
           completed: !!set.isCompleted,
@@ -2163,10 +2247,10 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-xs sm:justify-end">
-                        <Badge className="rounded border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                        <Badge variant="outline" className="rounded-md border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
                           RPE: {targetRPE}
                         </Badge>
-                        <Badge className="rounded border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                        <Badge variant="outline" className="rounded-md border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
                           Rest: {restTime}
                         </Badge>
                       </div>
@@ -2188,27 +2272,36 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                                   Goal: <span className="text-foreground/80">{targetReps || ""}</span>
                                 </span>
                               </div>
-                              <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-1/2 sm:flex-nowrap sm:justify-end">
-                                <div className="flex flex-1 items-center justify-center gap-2 sm:flex-none sm:justify-end">
-                                  <div className="flex h-10 w-[88px] items-center overflow-hidden rounded-md border border-input bg-muted/60 transition-all focus-within:ring-1 focus-within:ring-ring sm:h-9 sm:w-[84px]">
-                                    <input
-                                      type="text"
-                                      className="h-full w-full bg-transparent px-1 text-center text-sm text-foreground focus:outline-none"
-                                      placeholder="-"
-                                      value={kgStorageStringToDisplayWeight(set.actualWeight, weightUnitPref)}
-                                      onChange={(e) =>
-                                        handleSetChange(
-                                          activeExercise.exerciseId,
-                                          set.id,
-                                          "actualWeight",
-                                          e.target.value
-                                        )
-                                      }
-                                    />
-                                    <span className="flex h-full select-none items-center border-l border-border bg-muted px-2 text-[10px] font-bold text-muted-foreground">
-                                      {weightUnitPref === "imperial" ? "LB" : "KG"}
-                                    </span>
-                                  </div>
+                                  <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-1/2 sm:flex-nowrap sm:justify-end">
+                                    <div className="flex flex-1 items-center justify-center gap-2 sm:flex-none sm:justify-end">
+                                      <div className="relative flex h-10 w-[88px] items-center overflow-hidden rounded-md border border-input bg-muted/60 transition-all focus-within:ring-1 focus-within:ring-ring sm:h-9 sm:w-[84px]">
+                                        <input
+                                          type="text"
+                                          className="h-full w-full bg-transparent px-1 text-center text-sm text-foreground focus:outline-none"
+                                          placeholder="-"
+                                          value={kgStorageStringToDisplayWeight(set.actualWeight, weightUnitPref)}
+                                          onChange={(e) =>
+                                            handleSetChange(
+                                              activeExercise.exerciseId,
+                                              set.id,
+                                              "actualWeight",
+                                              e.target.value
+                                            )
+                                          }
+                                        />
+
+                                        <span className={`flex h-full select-none items-center border-l border-border bg-muted px-2 text-[10px] font-bold text-muted-foreground transition-all duration-200 ${
+                                          (set.actualWeight?.toLowerCase() === 'bw' || set.actualWeight?.toLowerCase() === 'max' || set.actualWeight?.toLowerCase() === 'full') 
+                                            ? 'bg-emerald-500/10 text-emerald-500' 
+                                            : ''
+                                        }`}>
+                                          {set.actualWeight?.toLowerCase() === 'bw' 
+                                            ? 'BW' 
+                                            : (set.actualWeight?.toLowerCase() === 'max' || set.actualWeight?.toLowerCase() === 'full') 
+                                              ? 'MAX' 
+                                              : (weightUnitPref === "imperial" ? "LB" : "KG")}
+                                        </span>
+                                      </div>
                                   <div className="flex h-10 w-[88px] items-center overflow-hidden rounded-md border border-input bg-muted/60 transition-all focus-within:ring-1 focus-within:ring-ring sm:h-9 sm:w-[84px]">
                                     <input
                                       type="text"
