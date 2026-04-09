@@ -48,7 +48,7 @@ function DayColumn({
   onChange: (v: string) => void;
   onBlur: (v: string) => void;
 }) {
-  const wrapperBase = "group flex flex-col items-center justify-center p-3.5 md:min-h-[116px] rounded-xl border transition-all duration-300 shadow-sm";
+  const wrapperBase = "group flex flex-col items-center justify-center p-4 md:min-h-[128px] rounded-xl border transition-all duration-300 shadow-sm";
   const wrapperClasses = isToday
     ? `${wrapperBase} bg-emerald-500/10 dark:bg-emerald-500/20 border-emerald-500/40 ring-1 ring-emerald-500/20 shadow-emerald-500/10`
     : `${wrapperBase} border-border/50 bg-card dark:bg-[#18181b] hover:bg-zinc-50 dark:hover:bg-[#18181b]/90 hover:border-border hover:shadow-md`;
