@@ -51,7 +51,7 @@ export default async function TodayPage() {
   const serverTodayStr = formatter.format(new Date());
 
   return (
-    <div className="max-w-7xl mx-auto space-y-4 pb-10 md:space-y-8 md:pb-0">
+    <div className="w-full space-y-4 pb-10 md:space-y-8 md:pb-0">
       {/* Header: compact on mobile so stats stay above the fold */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-1 min-w-0 flex-1">
