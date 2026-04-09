@@ -51,7 +51,7 @@ function DayColumn({
   const wrapperBase = "group flex flex-col items-center justify-center p-3 md:min-h-[110px] rounded-xl border transition-all duration-300 shadow-sm";
   const wrapperClasses = isToday
     ? `${wrapperBase} bg-emerald-500/10 dark:bg-emerald-500/20 border-emerald-500/40 ring-1 ring-emerald-500/20 shadow-emerald-500/10`
-    : `${wrapperBase} border-border/50 bg-card/60 hover:bg-card hover:border-border hover:shadow-md`;
+    : `${wrapperBase} border-border/50 bg-card dark:bg-[#18181b] hover:bg-zinc-50 dark:hover:bg-[#18181b]/90 hover:border-border hover:shadow-md`;
   const labelClasses = isToday
     ? "text-[10px] font-bold uppercase tracking-[0.15em] mb-2 text-emerald-500 dark:text-emerald-400"
     : "text-[10px] font-bold text-muted-foreground/80 uppercase tracking-[0.15em] mb-2 group-hover:text-foreground transition-colors";
