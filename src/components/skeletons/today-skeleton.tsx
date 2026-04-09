@@ -38,12 +38,12 @@ export function TodaySkeleton() {
         <Skeleton className="h-3 w-56 px-1 md:hidden" />
         <div className="md:hidden -mx-4 flex gap-3 overflow-hidden pb-2">
           {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-28 w-[min(17.5rem,calc(100vw-2rem))] shrink-0 rounded-xl" />
+            <Skeleton key={i} className="h-[116px] w-[min(17.5rem,calc(100vw-2rem))] shrink-0 rounded-xl" />
           ))}
         </div>
         <div className="hidden gap-3 md:grid md:grid-cols-7">
           {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-            <Skeleton key={i} className="h-28 w-full rounded-xl" />
+            <Skeleton key={i} className="h-[116px] w-full rounded-xl" />
           ))}
         </div>
       </section>
