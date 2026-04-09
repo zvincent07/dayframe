@@ -101,8 +101,22 @@ export async function analyzeFoodImageAI(base64ImageOrUrl: string): Promise<{ su
     let base64Data = "";
     let mime = "image/jpeg";
 
-    if (imageUrl.startsWith("/uploads/")) {
-      // It's a local URL, read the file from disk
+    if (imageUrl.startsWith("/api/images/")) {
+      // It's a database-stored image
+      const filename = imageUrl.split("/").pop();
+      if (filename) {
+        const { Image } = await import("@/models/Image");
+        const connectDB = (await import("@/lib/mongodb")).default;
+        await connectDB();
+        const imgDoc = await Image.findOne({ filename });
+        if (imgDoc) {
+          mime = imgDoc.contentType || "image/jpeg";
+          base64Data = (imgDoc.data as Buffer).toString("base64");
+          imageUrl = `data:${mime};base64,${base64Data}`;
+        }
+      }
+    } else if (imageUrl.startsWith("/uploads/")) {
+      // It's a local filesystem URL
       const { readFile } = await import("fs/promises");
       const { join } = await import("path");
       const filePath = join(process.cwd(), "public", imageUrl);
@@ -115,6 +129,7 @@ export async function analyzeFoodImageAI(base64ImageOrUrl: string): Promise<{ su
       else mime = "image/jpeg";
       imageUrl = `data:${mime};base64,${base64Data}`;
     } else {
+      // It's already base64 or a raw data string
       imageUrl = base64ImageOrUrl.startsWith("data:image") ? base64ImageOrUrl : `data:image/jpeg;base64,${base64ImageOrUrl}`;
       const idx = imageUrl.indexOf("base64,");
       if (idx !== -1) base64Data = imageUrl.slice(idx + 7);
@@ -122,95 +137,99 @@ export async function analyzeFoodImageAI(base64ImageOrUrl: string): Promise<{ su
     }
 
     const geminiKey = (await SecretService.getDecrypted(userId, "gemini")) || process.env.GEMINI_API_KEY || "";
+    if (!geminiKey) return { success: false, error: "Missing Gemini API key. Add it in Settings." };
 
     let parsed: Record<string, unknown> | null = null;
-    // Prioritize Gemini for Food track image analysis
-    if (geminiKey) {
+    const listEndpoints = [
+      "https://generativelanguage.googleapis.com/v1/models",
+      "https://generativelanguage.googleapis.com/v1beta/models",
+    ];
+    
+    let chosenBase = "";
+    let jModels: Array<{ name: string; supportedGenerationMethods?: string[] }> = [];
+
+    // 1. Adaptive Discovery
+    for (const listUrl of listEndpoints) {
+      if (jModels.length > 0) break;
       try {
-        // Discover available models for this key and project
-        const listEndpoints = [
-          "https://generativelanguage.googleapis.com/v1/models",
-          "https://generativelanguage.googleapis.com/v1beta/models",
-        ];
-        let chosenModel: string | null = null;
-        let chosenBase = "";
-        for (const listUrl of listEndpoints) {
-          const r = await fetch(`${listUrl}?key=${encodeURIComponent(geminiKey)}`);
-          if (!r.ok) {
-            continue;
-          }
-          const j = (await r.json().catch(() => ({}))) as { models?: Array<{ name: string; supportedGenerationMethods?: string[] }> };
-          const models = (j.models || []).filter((m) => (m.supportedGenerationMethods || []).includes("generateContent"));
-          // Prefer 1.5 flash/pro, then any vision-capable like pro-vision, then any generateContent model
-          const prefer = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro-vision"];
-          chosenModel =
-            models.find((m) => prefer.some((p) => m.name.includes(p)))?.name ??
-            models[0]?.name ??
-            null;
-          if (chosenModel) {
-            chosenBase = listUrl.replace(/\/models$/, "");
-            break;
-          }
+        const r = await fetch(`${listUrl}?key=${encodeURIComponent(geminiKey)}`);
+        if (!r.ok) continue;
+        const j = await r.json() as { models?: Array<{ name: string; supportedGenerationMethods?: string[] }> };
+        jModels = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes("generateContent"));
+        if (jModels.length > 0) {
+          chosenBase = listUrl.replace(/\/models$/, "");
         }
-        const gPayload = {
-          contents: [
-            {
-              parts: [
-                { text: "Analyze this food image. Output ONLY valid JSON with a 'description' string (semicolon-separated items with grams) and exact integers for 'protein', 'carbs', 'fats', and 'calories'. Use generic names and grams. Example: {\"description\":\"rice 240g; pork 150g; sauce 30g; shallots 5g\", \"protein\": 35, \"carbs\": 70, \"fats\": 20, \"calories\": 600}." },
-                { inlineData: { mimeType: mime, data: base64Data } },
-              ],
-            },
+      } catch {
+        continue;
+      }
+    }
+
+    if (jModels.length === 0) {
+      return { success: false, error: "No compatible Gemini models found for your API key. Check AI Studio permissions." };
+    }
+
+    const gPayload = {
+      contents: [
+        {
+          parts: [
+            { text: "Analyze this food image. Output ONLY valid JSON with a 'description' string (semicolon-separated items with grams) and exact integers for 'protein', 'carbs', 'fats', and 'calories'. Example: {\"description\":\"rice 240g; pork 150g; sauce 30g\", \"protein\": 35, \"carbs\": 70, \"fats\": 20, \"calories\": 600}." },
+            { inlineData: { mimeType: mime, data: base64Data } },
           ],
-        };
-        const baseCandidates: Array<{ base: string; model: string }> = [];
-        if (geminiModelCache) baseCandidates.push(geminiModelCache);
-        baseCandidates.push(
-          { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-1.5-flash" }
-        );
-        if (chosenModel && chosenBase) baseCandidates.push({ base: chosenBase, model: chosenModel });
-        baseCandidates.push(
-          { base: "https://generativelanguage.googleapis.com/v1/models", model: "gemini-1.5-flash" },
-          { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-1.5-pro" },
-          { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-pro-vision" }
-        );
-        for (let pass = 0; pass < 2 && !parsed; pass++) {
-          for (const c of baseCandidates) {
-            if (parsed) break;
-            const url = `${c.base}/${c.model}:generateContent?key=${encodeURIComponent(geminiKey)}`;
-            const resp = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(gPayload) }).catch(() => null);
-            if (!(resp && resp.ok)) continue;
-            const data = (await resp.json().catch(() => ({}))) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-            const parts = data?.candidates?.[0]?.content?.parts || [];
-            const first = parts.find((p) => typeof p?.text === "string");
-            let txt = first?.text || "";
-            if (txt.includes("```json")) {
-              txt = txt.replace(/```json\s*/g, "").replace(/```/g, "").trim();
-            } else if (txt.includes("```")) {
-              txt = txt.replace(/```\s*/g, "").trim();
-            }
-            if (!txt.trim().endsWith("}")) {
-              const lb = txt.lastIndexOf("}");
-              if (lb !== -1) txt = txt.slice(0, lb + 1);
-            }
-            try {
-              parsed = JSON.parse(typeof txt === "string" ? txt : "{}");
-              geminiModelCache = c;
-            } catch {
-              parsed = null;
-            }
-          }
-          if (!parsed) {
-            await new Promise((r) => setTimeout(r, 200));
+        },
+      ],
+    };
+
+    // 2. Adaptive Execution with Fallback
+    const viableModels = jModels.map(m => m.name);
+    const preference = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro-vision"];
+    const sortedModels: Array<{name: string, base: string}> = [];
+    
+    for (const p of preference) {
+      const idx = viableModels.findIndex(m => m.toLowerCase().includes(p));
+      if (idx !== -1) {
+        sortedModels.push({ name: viableModels[idx], base: chosenBase });
+        viableModels.splice(idx, 1);
+      }
+    }
+    viableModels.forEach(m => sortedModels.push({ name: m, base: chosenBase }));
+
+    let lastModelError = "";
+    for (const modelInfo of sortedModels) {
+      if (parsed) break;
+      try {
+        const url = `${modelInfo.base}/${modelInfo.name}:generateContent?key=${encodeURIComponent(geminiKey)}`;
+        const resp = await fetch(url, { 
+          method: "POST", 
+          headers: { "Content-Type": "application/json" }, 
+          body: JSON.stringify(gPayload) 
+        });
+
+        const data = await resp.json().catch(() => ({}));
+
+        if (!resp.ok) {
+          lastModelError = data?.error?.message || `Gemini API error (${resp.status})`;
+          if (resp.status === 503 || resp.status === 429) continue;
+          return { success: false, error: lastModelError };
+        }
+
+        const firstPart = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (firstPart) {
+          try {
+            parsed = JSON.parse(firstPart);
+          } catch {
+            let txt = firstPart.replace(/```json\s*/g, "").replace(/```/g, "").trim();
+            const lb = txt.lastIndexOf("}");
+            if (lb !== -1) txt = txt.slice(0, lb + 1);
+            parsed = JSON.parse(txt);
           }
         }
       } catch (e) {
-        logger.error("Gemini Vision error", e as unknown);
+        lastModelError = "Network error";
       }
     }
 
     if (!parsed) {
-      if (!geminiKey) return { success: false, error: "Missing Gemini API key" };
-      return { success: false, error: "Gemini temporarily unavailable; please try again" };
+      return { success: false, error: lastModelError || "Gemini is currently overloaded. Please try again in 30 seconds." };
     }
     return {
       success: true,

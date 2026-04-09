@@ -111,14 +111,15 @@ export class WorkoutService {
     return JSON.parse(JSON.stringify(plan));
   }
 
-  static async getWorkoutLog(userId: string, date: string): Promise<{ workouts: IWorkoutEntry[]; finished: boolean }> {
+  static async getWorkoutLog(userId: string, date: string): Promise<{ workouts: IWorkoutEntry[]; finished: boolean; notes: string }> {
     const doc = await WorkoutRepository.findWorkoutLog(userId, date);
     const workouts = (doc?.workouts as IWorkoutEntry[]) ?? [];
     const finished = !!(doc as Record<string, unknown> | null)?.finished;
-    return JSON.parse(JSON.stringify({ workouts, finished }));
+    const notes = ((doc as Record<string, unknown> | null)?.notes as string | undefined) ?? "";
+    return JSON.parse(JSON.stringify({ workouts, finished, notes }));
   }
 
-  static async saveWorkoutLog(userId: string, date: string, workouts: IWorkoutEntry[], finished?: boolean) {
+  static async saveWorkoutLog(userId: string, date: string, workouts: IWorkoutEntry[], finished?: boolean, notes?: string) {
     if (finished) {
       WorkoutService.logAudit("WORKOUT_FINISHED", userId, { 
         date, 
@@ -127,7 +128,7 @@ export class WorkoutService {
       }).catch(() => {});
     }
     await Promise.all([
-      WorkoutRepository.upsertWorkoutLog(userId, date, workouts, finished),
+      WorkoutRepository.upsertWorkoutLog(userId, date, workouts, finished, notes),
       UserActivityService.recordActivity(userId),
     ]);
   }
@@ -156,11 +157,9 @@ export class WorkoutService {
       }
     }
     if (!end) {
-      const d = new Date();
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      end = `${y}-${m}-${day}`;
+      // Use a very far future date if no end date provided, 
+      // so we don't accidentally cut off 'today' entries due to timezone differences.
+      end = "9999-12-31";
     }
     const docs = await WorkoutRepository.findWorkoutHistory(userId, start, end);
     return JSON.parse(JSON.stringify(docs));

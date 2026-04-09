@@ -167,7 +167,7 @@ export class WorkoutRepository {
     return JournalWorkouts.findOne({ userId: uid, date }).lean();
   }
 
-  static async upsertWorkoutLog(userId: string, date: string, workouts: IWorkoutEntry[], finished?: boolean) {
+  static async upsertWorkoutLog(userId: string, date: string, workouts: IWorkoutEntry[], finished?: boolean, notes?: string) {
     await connectDB();
     const uid = toObjectId(userId);
 
@@ -175,6 +175,9 @@ export class WorkoutRepository {
     if (finished !== undefined) {
       updateFields.finished = !!finished;
       updateFields.completedAt = finished ? new Date() : null;
+    }
+    if (notes !== undefined) {
+      updateFields.notes = notes;
     }
 
     return JournalWorkouts.findOneAndUpdate(
@@ -234,10 +237,11 @@ export class WorkoutRepository {
                       val: { $ifNull: ["$workouts.history.actualWeight", { $ifNull: ["$workouts.history.targetWeight", 0] }] }
                     },
                     in: {
-                      $cond: {
-                        if: { $isNumber: "$$val" },
-                        then: "$$val",
-                        else: 0
+                      $convert: {
+                        input: "$$val",
+                        to: "double",
+                        onError: 0,
+                        onNull: 0
                       }
                     }
                   }

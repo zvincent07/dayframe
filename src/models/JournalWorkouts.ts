@@ -22,6 +22,7 @@ export interface IJournalWorkouts extends Document {
   workouts: IWorkoutEntry[];
   finished?: boolean;
   completedAt?: Date | null;
+  notes?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -51,6 +52,7 @@ const JournalWorkoutsSchema = new Schema<IJournalWorkouts>(
     ],
     finished: { type: Boolean, default: false },
     completedAt: { type: Date, default: null },
+    notes: { type: String, default: "" },
   },
   { timestamps: true, collection: "journal_workouts" }
 );

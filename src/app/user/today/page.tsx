@@ -51,21 +51,21 @@ export default async function TodayPage() {
   const serverTodayStr = formatter.format(new Date());
 
   return (
-    <div className="space-y-4 pb-10 md:space-y-8 md:pb-0">
+    <div className="max-w-7xl mx-auto space-y-4 pb-10 md:space-y-8 md:pb-0">
       {/* Header: compact on mobile so stats stay above the fold */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex flex-col gap-1 min-w-0 flex-1 pr-4">
-          <h1 className="text-xl font-bold tracking-tight sm:text-3xl">Today</h1>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-1 min-w-0 flex-1">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Today</h1>
           <p className="text-sm font-medium text-muted-foreground">
             Welcome back, {name || username || "User"}.
           </p>
           {randomQuote && (
-            <p className="mt-1 max-w-3xl text-sm font-medium italic leading-relaxed text-muted-foreground">
+            <p className="mt-1 max-w-3xl text-xs sm:text-sm font-medium italic leading-relaxed text-muted-foreground line-clamp-2 sm:line-clamp-none">
               &quot;{randomQuote}&quot;
             </p>
           )}
         </div>
-        <Button asChild className="font-semibold shadow-lg hover:shadow-xl transition-all w-full sm:w-auto min-h-11 shrink-0 mt-2 sm:mt-0">
+        <Button asChild className="font-semibold shadow-md hover:shadow-lg transition-all w-full sm:w-auto min-h-10 shrink-0 mt-2 sm:mt-0">
           <Link href="/user/journal" className="flex items-center justify-center">
             <Book className="mr-2 h-4 w-4 shrink-0" />
             New Entry
@@ -81,19 +81,19 @@ export default async function TodayPage() {
       />
 
       {/* Weekly Planner */}
-      <section className="w-full" aria-label="Weekly focus">
+      <section className="w-full overflow-x-auto" aria-label="Weekly focus">
         <WeeklyPlanner
           initialTasks={weeklyFocus?.tasks || {}}
           weekStartsOn={dbUser?.firstDayOfWeek ?? "sunday"}
         />
       </section>
 
-      {/* Tasks and Quotes: responsive height tuned to viewport */}
-      <div className="grid gap-6 md:grid-cols-[3fr_2fr] md:auto-rows-fr">
-        <section className="min-h-0 md:h-[450px]" aria-label="Tasks for today">
+      {/* Tasks and Quotes: more balanced grid on desktop */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start xl:gap-8">
+        <section className="lg:col-span-8 h-full" aria-label="Tasks for today">
           <TaskList initialTasks={dailyTasks} initialDateStr={serverTodayStr} />
         </section>
-        <section className="min-h-0 md:h-[450px] flex flex-col gap-4 md:gap-6" aria-label="Daily quotes and widgets">
+        <section className="lg:col-span-4 h-full flex flex-col gap-4" aria-label="Daily quotes and widgets">
           <QuoteBoard initialQuotes={quotes} />
         </section>
       </div>

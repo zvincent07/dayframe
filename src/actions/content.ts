@@ -6,7 +6,6 @@ import { requirePermission } from "@/permissions";
 import { Announcement } from "@/models/Announcement";
 import { BlogPost } from "@/models/BlogPost";
 import { EmailTemplate } from "@/models/EmailTemplate";
-import { JournalPrompt } from "@/models/JournalPrompt";
 import { AuditLog } from "@/models/AuditLog";
 import { revalidatePath } from "next/cache";
 
@@ -127,47 +126,6 @@ export async function deleteEmailTemplate(id: string) {
     actorEmail: session?.user?.email || "system",
     action: "DELETE_EMAIL_TEMPLATE",
     targetType: "EmailTemplate",
-    targetId: id,
-  });
-  revalidatePath("/admin/content");
-  return { success: true };
-}
-
-// --- JOURNAL PROMPTS ---
-export async function getJournalPrompts() {
-  const session = await auth();
-  requirePermission(session?.user, "view:settings");
-  await connectDB();
-  const items = await JournalPrompt.find().sort({ createdAt: -1 }).lean();
-  return items.map(i => ({ ...i, _id: i._id.toString() }));
-}
-
-export async function createJournalPrompt(data: { text: string; category?: string }) {
-  const session = await auth();
-  requirePermission(session?.user, "update:settings");
-  await connectDB();
-  const item = await JournalPrompt.create(data);
-  await AuditLog.create({
-    actorId: session?.user?.id || "unknown",
-    actorEmail: session?.user?.email || "system",
-    action: "CREATE_JOURNAL_PROMPT",
-    targetType: "JournalPrompt",
-    targetId: item._id.toString(),
-  });
-  revalidatePath("/admin/content");
-  return { success: true, id: item._id.toString() };
-}
-
-export async function deleteJournalPrompt(id: string) {
-  const session = await auth();
-  requirePermission(session?.user, "update:settings");
-  await connectDB();
-  await JournalPrompt.findByIdAndDelete(id);
-  await AuditLog.create({
-    actorId: session?.user?.id || "unknown",
-    actorEmail: session?.user?.email || "system",
-    action: "DELETE_JOURNAL_PROMPT",
-    targetType: "JournalPrompt",
     targetId: id,
   });
   revalidatePath("/admin/content");

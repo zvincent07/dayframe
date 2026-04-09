@@ -37,6 +37,7 @@ const workoutLogSaveSchema = z.union([
   z.object({
     finished: z.boolean().optional(),
     workouts: workoutLogSchema,
+    notes: z.string().optional(),
   }),
 ]);
 
@@ -185,7 +186,7 @@ export async function saveWorkoutLog(date: string, payload: unknown) {
   if (Array.isArray(parsed.data)) {
     await WorkoutService.saveWorkoutLog(session.user.id, parsedDate.data, parsed.data);
   } else {
-    await WorkoutService.saveWorkoutLog(session.user.id, parsedDate.data, parsed.data.workouts, parsed.data.finished);
+    await WorkoutService.saveWorkoutLog(session.user.id, parsedDate.data, parsed.data.workouts, parsed.data.finished, parsed.data.notes);
   }
   revalidatePath("/user/workout");
   revalidatePath("/user/today");

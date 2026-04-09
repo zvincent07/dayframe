@@ -48,20 +48,20 @@ function DayColumn({
   onChange: (v: string) => void;
   onBlur: (v: string) => void;
 }) {
-  const wrapperBase = "group flex flex-col items-center justify-center p-3 md:min-h-[105px] rounded-xl border transition-all";
+  const wrapperBase = "group flex flex-col items-center justify-center p-3 md:min-h-[110px] rounded-xl border transition-all duration-300 shadow-sm";
   const wrapperClasses = isToday
-    ? `${wrapperBase} bg-emerald-100 dark:bg-emerald-900/30 border-emerald-500/30`
-    : `${wrapperBase} border-border/60 bg-card`;
+    ? `${wrapperBase} bg-emerald-500/10 dark:bg-emerald-500/20 border-emerald-500/40 ring-1 ring-emerald-500/20 shadow-emerald-500/10`
+    : `${wrapperBase} border-border/50 bg-card/60 hover:bg-card hover:border-border hover:shadow-md`;
   const labelClasses = isToday
-    ? "text-[10px] font-bold uppercase tracking-widest mb-1.5 text-emerald-400"
-    : "text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5 group-hover:text-foreground transition-colors";
+    ? "text-[10px] font-bold uppercase tracking-[0.15em] mb-2 text-emerald-500 dark:text-emerald-400"
+    : "text-[10px] font-bold text-muted-foreground/80 uppercase tracking-[0.15em] mb-2 group-hover:text-foreground transition-colors";
   return (
     <div className={wrapperClasses}>
       <span className={labelClasses}>{dayLabel}</span>
       <input
         type="text"
         maxLength={21}
-        className="w-full border-none bg-transparent p-0 text-center text-xs font-semibold text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-0 sm:text-sm"
+        className="w-full border-none bg-transparent p-0 text-center text-xs font-bold text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-0 sm:text-sm tracking-tight"
         placeholder="Focus..."
         value={value}
         onChange={(e) => onChange(e.target.value)}

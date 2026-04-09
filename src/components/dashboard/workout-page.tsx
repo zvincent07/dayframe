@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CalendarIcon, GripVertical, Trash2, Check, Download, MoreHorizontal, FileJson, Upload, Settings2 } from "lucide-react";
+import { CalendarIcon, GripVertical, Trash2, Check, Download, MoreHorizontal, FileJson, Upload, Settings2, ChevronLeft, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/modal";
 import { WorkoutHistoryFeed } from "@/components/dashboard/workout-history-feed";
@@ -90,6 +90,7 @@ interface WorkoutPageProps {
     }[];
   }[];
   initialFinished?: boolean;
+  initialNotes?: string;
   preferredUnits?: "metric" | "imperial";
 }
 
@@ -291,6 +292,7 @@ const EXERCISES: Exercise[] = [
   { id: "back-squat-smith", name: "Smith Machine Squat", targetMuscle: "Quads / Glutes", category: "legs" },
   { id: "front-squat", name: "Front Squat", targetMuscle: "Quads", category: "legs" },
   { id: "zercher-squat", name: "Zercher Squat", targetMuscle: "Quads / Glutes", category: "legs" },
+  { id: "pendulum-squat", name: "Pendulum Squat", targetMuscle: "Quads", category: "legs" },
   { id: "rdl", name: "Romanian Deadlift", targetMuscle: "Hamstrings", category: "legs" },
   { id: "deadlift-conv", name: "Conventional Deadlift", targetMuscle: "Posterior Chain", category: "legs" },
   { id: "deadlift-sumo", name: "Sumo Deadlift", targetMuscle: "Posterior Chain", category: "legs" },
@@ -487,7 +489,7 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
     const prev = previousWeightsRef.current[index];
     if (prev !== undefined) {
       handleExerciseChange(index, "targetWeight", prev);
-      delete previousWeightsRef.current[index];
+      // Keep the ref so undo always reverts to pre-increment state
     }
   };
 
@@ -676,8 +678,9 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
                         <div className="flex items-center gap-1 pl-1">
                           <button type="button" onClick={() => handleAppendWeight(index, exercise.targetWeight ?? "", 2.5)} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-emerald-500/20 hover:text-emerald-400 border border-border/30 transition-colors">+2.5</button>
                           <button type="button" onClick={() => handleAppendWeight(index, exercise.targetWeight ?? "", 5)} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-emerald-500/20 hover:text-emerald-400 border border-border/30 transition-colors">+5</button>
-                          <button type="button" onClick={() => handleExerciseChange(index, "targetWeight", "max")} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-emerald-500/20 hover:text-emerald-400 border border-border/30 transition-colors">Max</button>
-                          <button type="button" onClick={() => handleUndoWeight(index)} className="text-[10px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-red-500/20 hover:text-red-400 border border-border/30 transition-colors" title="Undo Increment">↺</button>
+                          <button type="button" onClick={() => { previousWeightsRef.current[index] = exercise.targetWeight ?? ""; handleExerciseChange(index, "targetWeight", "max"); }} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-emerald-500/20 hover:text-emerald-400 border border-border/30 transition-colors">Max</button>
+                          <button type="button" onClick={() => { previousWeightsRef.current[index] = exercise.targetWeight ?? ""; handleExerciseChange(index, "targetWeight", "bw"); }} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-blue-500/20 hover:text-blue-400 border border-border/30 transition-colors">BW</button>
+                          <button type="button" onClick={() => handleUndoWeight(index)} className="text-[10px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground hover:bg-red-500/20 hover:text-red-400 border border-border/30 transition-colors" title="Undo last change">↺</button>
                         </div>
                       </div>
                       <div className="flex items-center justify-start gap-2">
@@ -770,12 +773,17 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
   );
 }
 
-export function WorkoutPage({ initialConfig, today, initialLog, initialFinished = false, preferredUnits = "metric" }: WorkoutPageProps) {
+export function WorkoutPage({ initialConfig, today, initialLog, initialFinished = false, initialNotes = "", preferredUnits = "metric" }: WorkoutPageProps) {
   const weightUnitPref: "metric" | "imperial" = preferredUnits === "imperial" ? "imperial" : "metric";
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [todayFinished, setTodayFinished] = useState(initialFinished);
-  const [todayIndex] = useState<DayOfWeek>(() => new Date(today).getDay() as DayOfWeek);
+  const todayIndex = useMemo(() => new Date(today).getDay() as DayOfWeek, [today]);
+  
+  useEffect(() => {
+    setTodayFinished(initialFinished);
+  }, [initialFinished, today]);
+
   const [customTitle, setCustomTitle] = useState(initialConfig?.title ?? "Push/Pull/Legs split");
   const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>(() => {
     if (initialConfig?.schedule) {
@@ -854,7 +862,10 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
   const activeRoutine =
     todayRoutineId === "REST" ? undefined : routineById[todayRoutineId];
 
-  const todayLabel = useMemo(() => format(new Date(today), "EEEE, MMMM d"), [today]);
+  const todayLabel = useMemo(() => {
+    const [y, m, d] = today.split("-").map(Number);
+    return format(new Date(y, m - 1, d), "EEEE, MMMM d");
+  }, [today]);
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const activeRoutineRef = useRef(activeRoutine);
@@ -869,7 +880,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
 
   // Hydrate session from logs/routine on load, or localStorage if available
   useEffect(() => {
-    if (!activeRoutine) {
+    if (!activeRoutine && initialLog.length === 0) {
       setActiveSession({
         startTime: null,
         exercises: [],
@@ -887,7 +898,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
         // Ensure stored session matches the *current* active routine structure!
         // If the user switched plans, the stored session might belong to the old plan's routine for today.
         const storedRoutineId = parsed?.exercises?.[0]?.id?.split(":")[0];
-        if (parsed?.exercises?.length > 0 && storedRoutineId === activeRoutine.routineId) {
+        if (parsed?.exercises?.length > 0 && activeRoutine && storedRoutineId === activeRoutine.routineId) {
           let startTime: Date | null = null;
           if (parsed.startTime != null) {
             const d = new Date(parsed.startTime as unknown as string | number | Date);
@@ -901,52 +912,96 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
       // Failed to load session from storage, ignore
     }
     
-    const exercises: ActiveExercise[] = activeRoutine.exercises.map((item, index) => {
-      const exerciseDef = resolveExercise(item.exerciseId);
-      const name = exerciseDef?.name ?? item.exerciseId;
-      const exerciseKey = `${activeRoutine.routineId}:${item.exerciseId}:${index}`;
-      
-      const existingLogs = initialLog.find(l => l.exercise === name)?.history ?? [];
-      const { weights } = parseWeightPlan(item.targetWeight);
-      const targetReps = item.targetReps || "0";
-      const targetSetsCount = item.targetSets || 3;
-      const setCount = existingLogs.length > 0 ? existingLogs.length : targetSetsCount;
-      const sets: WorkoutSet[] = Array.from({ length: setCount }).map((_, i) => {
-        const log = existingLogs[i];
-        const targetW = getPlannedWeightForSet(weights, i);
-        
-        return {
-          id: `${exerciseKey}-set-${i}`,
-          targetWeight: targetW ? String(targetW) : "",
-          targetReps: targetReps,
-          actualWeight: log?.actualWeight ? String(log.actualWeight) : (targetW ? String(targetW) : ""),
-          actualReps: log?.actualReps ? String(log.actualReps) : "",
-          isCompleted: !!log?.completed,
-          userAdded: false,
-        };
-      });
+    // Hydrate session from logs and active routine
+    const exercises: ActiveExercise[] = [];
+    const exerciseMap = new Map<string, ActiveExercise>();
 
-      return {
+    // 1. First, populate from active routine (targets)
+    if (activeRoutine) {
+      activeRoutine.exercises.forEach((item, index) => {
+        const exerciseDef = resolveExercise(item.exerciseId);
+        const name = exerciseDef?.name ?? item.exerciseId;
+        const exerciseKey = `${activeRoutine.routineId}:${item.exerciseId}:${index}`;
+        
+        // Find logs for this specific exercise name
+        const logEntry = initialLog.find(l => l.exercise === name);
+        const existingSetsLogs = logEntry?.history ?? [];
+        
+        const { weights } = parseWeightPlan(item.targetWeight);
+        const targetReps = item.targetReps || "0";
+        const targetSetsCount = item.targetSets || 3;
+        const setCount = Math.max(existingSetsLogs.length, targetSetsCount);
+        
+        const sets: WorkoutSet[] = Array.from({ length: setCount }).map((_, i) => {
+          const log = existingSetsLogs[i];
+          const targetW = getPlannedWeightForSet(weights, i);
+          
+          return {
+            id: `${exerciseKey}-set-${i}`,
+            targetWeight: targetW ? String(targetW) : "",
+            targetReps: targetReps,
+            actualWeight: log?.actualWeight ? String(log.actualWeight) : (targetW ? String(targetW) : ""),
+            actualReps: log?.actualReps ? String(log.actualReps) : "",
+            isCompleted: !!log?.completed,
+            userAdded: i >= targetSetsCount,
+          };
+        });
+
+        const activeEx: ActiveExercise = {
+          id: exerciseKey,
+          exerciseId: item.exerciseId,
+          name,
+          sets,
+        };
+        exercises.push(activeEx);
+        exerciseMap.set(name, activeEx);
+      });
+    }
+
+    // 2. Second, add exercises from initialLog that WEREN'T in the routine
+    initialLog.forEach((logEntry) => {
+      if (exerciseMap.has(logEntry.exercise)) return;
+      
+      const exerciseDef = EXERCISES.find(e => e.name === logEntry.exercise);
+      const exerciseId = exerciseDef?.id ?? logEntry.exercise;
+      const exerciseKey = `manual:${exerciseId}:${Date.now()}`;
+      
+      const existingSetsLogs = logEntry.history ?? [];
+      const sets: WorkoutSet[] = existingSetsLogs.map((log, i) => ({
+        id: `${exerciseKey}-set-${i}`,
+        targetWeight: "",
+        targetReps: "0",
+        actualWeight: log?.actualWeight ? String(log.actualWeight) : "",
+        actualReps: log?.actualReps ? String(log.actualReps) : "",
+        isCompleted: !!log?.completed,
+        userAdded: true,
+      }));
+
+      exercises.push({
         id: exerciseKey,
-        exerciseId: item.exerciseId,
-        name,
-        sets,
-      };
+        exerciseId,
+        name: logEntry.exercise,
+        sets
+      });
     });
 
     setActiveSession({
-      startTime: new Date(),
+      startTime: exercises.some(ex => ex.sets.some(s => s.isCompleted)) ? (activeSession.startTime || new Date()) : new Date(),
       exercises,
     });
   }, [activeRoutine, initialLog, today, todayFinished]);
 
+  const [sessionNotes, setSessionNotes] = useState(initialNotes);
+  useEffect(() => {
+    setSessionNotes(initialNotes);
+  }, [initialNotes, today]);
   const [isSavingWorkout, setIsSavingWorkout] = useState(false);
   const [hasDirtyWorkout, setHasDirtyWorkout] = useState(false);
   const [isRoutinesModalOpen, setIsRoutinesModalOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyEntries, setHistoryEntries] = useState<Array<{ _id: string; date: string; workouts: Array<Record<string, unknown>>; finished?: boolean }>>([]);
+  const [historyEntries, setHistoryEntries] = useState<Array<{ _id: string; date: string; workouts: Array<Record<string, unknown>>; finished?: boolean; notes?: string }>>([]);
   const [importDialogData, setImportDialogData] = useState<{planName: string, data: any, properSchedule: any} | null>(null);
   
   const [selectedPlanId, setSelectedPlanId] = useState<string | "new">("new");
@@ -988,9 +1043,16 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
     setIsScheduleModalOpen(true);
   };
   const openHistoryModal = async () => {
+    // Flush any pending debounced auto-save so today's workout appears immediately
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    if (hasDirtyWorkout && !todayFinishedRef.current && activeRoutineRef.current) {
+      await saveWorkout();
+    }
     setIsHistoryModalOpen(true);
     setHistoryLoading(true);
-    // Fetch all history so that the modal can paginate backwards without limits
     try {
       const docs = await getWorkoutHistory({ limit: 0 });
       const safe = Array.isArray(docs)
@@ -1004,10 +1066,11 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
               date: typeof d?.date === "string" ? d.date : String(d?.date ?? ""),
               workouts: Array.isArray(d?.workouts) ? d.workouts : [],
               finished,
+              notes: typeof d?.notes === "string" ? d.notes : undefined,
             };
           })
         : [];
-      setHistoryEntries(safe as Array<{ _id: string; date: string; workouts: Array<Record<string, unknown>>; finished?: boolean }>);
+      setHistoryEntries(safe as Array<{ _id: string; date: string; workouts: Array<Record<string, unknown>>; finished?: boolean; notes?: string }>);
     } finally {
       setHistoryLoading(false);
     }
@@ -1667,11 +1730,14 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
       });
 
       const dateForSave = today;
+      const notesTrimmed = sessionNotes.trim();
+      const enrichedPayload = notesTrimmed
+        ? { finished: !!opts?.finished, workouts: payload, notes: notesTrimmed }
+        : opts?.finished
+          ? { finished: true, workouts: payload }
+          : payload;
       const attempt = async () => {
-        const res = await saveWorkoutLog(
-          dateForSave,
-          opts?.finished ? { finished: true, workouts: payload } : payload
-        );
+        const res = await saveWorkoutLog(dateForSave, enrichedPayload);
         return !!(res && typeof res === "object" && "success" in res);
       };
       let ok = await attempt();
@@ -1754,10 +1820,11 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
               date: typeof d?.date === "string" ? d.date : String(d?.date ?? ""),
               workouts: Array.isArray(d?.workouts) ? d.workouts : [],
               finished,
+              notes: typeof d?.notes === "string" ? d.notes : undefined,
             };
           })
         : [];
-      setHistoryEntries(safe as Array<{ _id: string; date: string; workouts: Array<Record<string, unknown>>; finished?: boolean }>);
+      setHistoryEntries(safe as Array<{ _id: string; date: string; workouts: Array<Record<string, unknown>>; finished?: boolean; notes?: string }>);
     } finally {
       setHistoryLoading(false);
     }
@@ -1899,7 +1966,6 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
             <div class="day-head">
               <div>
                 <div class="day-title">${row.label}</div>
-                <div class="meta" style="margin-top:2px;">${todayStr}</div>
               </div>
               ${chip}
             </div>
@@ -2014,13 +2080,40 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
           <h1 className="text-xl font-bold tracking-tight sm:text-3xl">
             Workout Plan
           </h1>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 flex items-center gap-2">
-            <CalendarIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-            <span className="truncate">
-              Today:{" "}
-              {activeRoutine ? activeRoutine.name : "REST"} • {todayLabel}
-            </span>
-          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <button
+              onClick={() => {
+                const [y, m, d] = today.split("-").map(Number);
+                const dateObj = new Date(y, m - 1, d);
+                dateObj.setDate(dateObj.getDate() - 1);
+                const prevDate = format(dateObj, "yyyy-MM-dd");
+                router.push(`?date=${prevDate}`);
+              }}
+              className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+              title="Previous Day"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <p className="text-xs sm:text-sm text-muted-foreground flex items-center gap-2 min-w-0">
+              <CalendarIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+              <span className="truncate">
+                {activeRoutine ? activeRoutine.name : "REST"} • {todayLabel}
+              </span>
+            </p>
+            <button
+              onClick={() => {
+                const [y, m, d] = today.split("-").map(Number);
+                const dateObj = new Date(y, m - 1, d);
+                dateObj.setDate(dateObj.getDate() + 1);
+                const nextDate = format(dateObj, "yyyy-MM-dd");
+                router.push(`?date=${nextDate}`);
+              }}
+              className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+              title="Next Day"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-2 mt-1 sm:mt-0">
           <DropdownMenu>
@@ -2364,6 +2457,22 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                   </Card>
                 );
               })}
+
+              {/* Session Notes */}
+              <div className="mt-2">
+                <label className="block text-sm font-semibold text-foreground mb-2">
+                  Session Notes
+                </label>
+                <textarea
+                  className="w-full min-h-[96px] rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground resize-y focus:outline-none focus:ring-1 focus:ring-ring transition-colors"
+                  placeholder="How did the session feel? Any PRs, form cues, or things to remember next time…"
+                  value={sessionNotes}
+                  onChange={(e) => {
+                    setSessionNotes(e.target.value);
+                    setHasDirtyWorkout(true);
+                  }}
+                />
+              </div>
             </div>
           ) : (
             <Card className="border border-dashed border-border/60 bg-muted/40 px-4 py-6 text-sm">
@@ -2444,7 +2553,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                     type="button"
                     size="lg"
                     className={`mt-4 w-full min-h-11 sm:min-h-10 ${currentStats.completedSets === currentStats.totalSets ? "bg-emerald-600 font-semibold text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:text-primary-foreground dark:hover:bg-emerald-400" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}
-                    disabled={!activeRoutine || isSavingWorkout || activeSession.exercises.length === 0}
+                    disabled={isSavingWorkout || activeSession.exercises.length === 0}
                     onClick={finishWorkout}
                   >
                     {isSavingWorkout ? "Saving..." : "Finish workout"}

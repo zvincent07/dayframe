@@ -386,18 +386,18 @@ export function TaskList({ initialTasks, initialDateStr }: { initialTasks: Task[
                     </div>
                   ) : (
                     <>
-                      <span
-                        className={`min-w-0 flex-1 truncate text-sm font-medium transition-all cursor-pointer ${task.isCompleted ? 'line-through text-zinc-600 dark:text-zinc-500' : 'text-foreground'}`}
-                        onClick={() => handleEditStart(task)}
-                      >
-                        {task.title}
-                      </span>
-                      <span
-                        className={`shrink-0 font-mono text-xs tabular-nums cursor-pointer ${task.isCompleted ? 'text-zinc-600 dark:text-zinc-500' : 'text-zinc-500 dark:text-zinc-500'}`}
-                        onClick={() => handleEditStart(task)}
-                      >
-                        {task.duration || '—'}
-                      </span>
+                      <div className="flex flex-1 items-center justify-between min-w-0 gap-3 cursor-pointer" onClick={() => handleEditStart(task)}>
+                        <span
+                          className={`truncate text-sm font-medium transition-all ${task.isCompleted ? 'line-through text-muted-foreground/60' : 'text-foreground hover:text-emerald-500'}`}
+                        >
+                          {task.title}
+                        </span>
+                        <span
+                          className={`shrink-0 font-mono text-[10px] tabular-nums px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 ${task.isCompleted ? 'text-muted-foreground/40' : 'text-muted-foreground'}`}
+                        >
+                          {task.duration || '—'}
+                        </span>
+                      </div>
                     </>
                   )}
                   <Button

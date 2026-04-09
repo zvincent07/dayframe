@@ -13,6 +13,7 @@ export interface WorkoutDoc {
   date: string;
   workouts: IWorkoutEntry[];
   finished?: boolean;
+  notes?: string;
 }
 
 function computeSummary(doc: WorkoutDoc) {
@@ -99,6 +100,12 @@ function WorkoutDayDetailContent({ doc }: { doc: WorkoutDoc }) {
     <div className="space-y-6">
       {doc.finished ? (
         <p className="text-xs text-muted-foreground">Finished workout — sets below include targets even if not all were checked off in the log.</p>
+      ) : null}
+      {doc.notes && doc.notes.trim() ? (
+        <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Session Notes</p>
+          <p className="text-sm text-foreground whitespace-pre-wrap">{doc.notes}</p>
+        </div>
       ) : null}
       {list.map((w: IWorkoutEntry, idx: number) => {
         const history: NonNullable<IWorkoutEntry["history"]> = Array.isArray(w.history) ? w.history : [];
@@ -340,6 +347,12 @@ export function WorkoutHistoryFeed({ initialHistory, isLoading }: { initialHisto
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
+              {doc.notes && doc.notes.trim() ? (
+                <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Notes</p>
+                  <p className="text-sm text-foreground whitespace-pre-wrap">{doc.notes}</p>
+                </div>
+              ) : null}
               {Array.isArray(doc.workouts) && doc.workouts.map((w: IWorkoutEntry, idx: number) => {
                 const sets: NonNullable<IWorkoutEntry["history"]> = Array.isArray(w.history)
                   ? w.history.filter((h) => h?.completed || h?.actualWeight != null || h?.actualReps != null)

@@ -6,17 +6,27 @@ import { WorkoutPage } from "@/components/dashboard/workout-page";
 import { WorkoutService } from "@/services/workout.service";
 import { UserRepository } from "@/repositories/user.repository";
 
-export default async function WorkoutRoute() {
+export default async function WorkoutRoute({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const session = await auth();
   if (!session?.user) redirect("/");
   const userId = session.user.id;
   if (typeof userId !== "string") redirect("/login");
 
-  const today = format(new Date(), "yyyy-MM-dd");
-  const [config, logResult, user] = await Promise.all([
+  const user = await UserRepository.findById(userId);
+  const timezone = user?.timezone || "UTC";
+  
+  // Calculate today in user's timezone if no date param provided
+  const { date } = await searchParams;
+  const today = date || new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: timezone,
+  }).format(new Date());
+
+  const [config, logResult] = await Promise.all([
     WorkoutService.getConfig(userId),
     WorkoutService.getWorkoutLog(userId, today),
-    UserRepository.findById(userId),
   ]);
 
   return (
@@ -25,6 +35,7 @@ export default async function WorkoutRoute() {
       today={today}
       initialLog={logResult.workouts}
       initialFinished={logResult.finished}
+      initialNotes={logResult.notes ?? ""}
       preferredUnits={user?.preferredUnits ?? "metric"}
     />
   );
