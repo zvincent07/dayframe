@@ -44,12 +44,12 @@ export const journalUpdateSchema = z.object({
   notes: z.string().optional().default(""),
   images: z.array(z.string()).optional().default([]),
   mainTask: z.string().optional().default(""),
-  tasks: z.array(taskSchema).optional().default([]),
+  tasks: z.array(taskSchema).optional(),
   food: foodLogSchema.optional().default({ morning: "", lunch: "", noon: "", dinner: "" }),
   foodImages: z.array(z.string()).optional(),
   spending: z.array(spendingSchema).optional().default([]),
   currency: z.string().optional(),
-  workouts: z.array(workoutSchema).optional().default([]),
+  workouts: z.array(workoutSchema).optional(),
 });
 
 export const dateParamSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD");

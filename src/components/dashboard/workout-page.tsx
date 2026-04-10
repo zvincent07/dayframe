@@ -741,17 +741,41 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
         </button>
 
         <div className="mt-4 flex items-center justify-between pt-4">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={!selectedRoutine || routines.length <= 1}
-            onClick={handleDeleteRoutineLocal}
-            className="text-red-500 hover:bg-red-500/10 hover:text-red-400"
-          >
-            <Trash2 className="h-3.5 w-3.5 mr-1" />
-            Delete routine
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={!selectedRoutine || routines.length <= 1}
+              onClick={handleDeleteRoutineLocal}
+              className="text-red-500 hover:bg-red-500/10 hover:text-red-400"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Delete routine
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={!selectedRoutine}
+              onClick={() => {
+                if (!selectedRoutine) return;
+                const newId = `CUSTOM_${Date.now()}`;
+                const newRoutine = {
+                  ...selectedRoutine,
+                  routineId: newId,
+                  name: `${selectedRoutine.name} (Copy)`,
+                  exercises: selectedRoutine.exercises.map((e) => ({ ...e, id: `${newId}-ex-${Math.random().toString(36).substr(2, 9)}` })),
+                };
+                setRoutines([...routines, newRoutine]);
+                setSelectedRoutineId(newId);
+                toast.success("Routine duplicated");
+              }}
+              className="text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            >
+              Duplicate routine
+            </Button>
+          </div>
           <div className="flex items-center gap-2">
             <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
               Cancel
@@ -878,8 +902,12 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
     exercises: [],
   });
 
+  const touchedSessionRef = useRef(false);
+
   // Hydrate session from logs/routine on load, or localStorage if available
   useEffect(() => {
+    if (touchedSessionRef.current) return;
+    
     if (!activeRoutine && initialLog.length === 0) {
       setActiveSession({
         startTime: null,
@@ -992,9 +1020,19 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
   }, [activeRoutine, initialLog, today, todayFinished]);
 
   const [sessionNotes, setSessionNotes] = useState(initialNotes);
+  const touchedNotesRef = useRef(false);
+
   useEffect(() => {
+    if (!touchedNotesRef.current) {
+      setSessionNotes(initialNotes);
+    }
+  }, [initialNotes]);
+
+  useEffect(() => {
+    touchedNotesRef.current = false;
+    touchedSessionRef.current = false;
     setSessionNotes(initialNotes);
-  }, [initialNotes, today]);
+  }, [today]);
   const [isSavingWorkout, setIsSavingWorkout] = useState(false);
   const [hasDirtyWorkout, setHasDirtyWorkout] = useState(false);
   const [isRoutinesModalOpen, setIsRoutinesModalOpen] = useState(false);
@@ -1238,6 +1276,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
   // --- Step 3: Interactive Logic ---
 
   const handleSetChange = (exerciseId: string, setId: string, field: "actualWeight" | "actualReps", value: string) => {
+    touchedSessionRef.current = true;
     setActiveSession(prev => {
       const nextExercises = prev.exercises.map(ex => {
         if (ex.exerciseId !== exerciseId) return ex;
@@ -1284,6 +1323,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
   };
 
   const handleToggleSetComplete = (exerciseId: string, setId: string) => {
+    touchedSessionRef.current = true;
     setActiveSession(prev => {
       const nextExercises = prev.exercises.map(ex => {
         if (ex.exerciseId !== exerciseId) return ex;
@@ -1330,6 +1370,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
   };
 
   const handleAddSet = (exerciseId: string) => {
+    touchedSessionRef.current = true;
     setActiveSession(prev => {
       const nextExercises = prev.exercises.map(ex => {
         if (ex.exerciseId !== exerciseId) return ex;
@@ -1370,6 +1411,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
   };
 
   const handleDeleteSet = (exerciseId: string, setId: string) => {
+    touchedSessionRef.current = true;
     setActiveSession(prev => {
       const nextExercises = prev.exercises.map(ex => {
         if (ex.exerciseId !== exerciseId) return ex;
@@ -1754,7 +1796,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
     } finally {
       setIsSavingWorkout(false);
     }
-  }, [activeSession, today]);
+  }, [activeSession, today, sessionNotes]);
 
   const finishWorkout = async () => {
     if (saveTimeoutRef.current) {
@@ -2202,12 +2244,12 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                     Save
                   </Button>
                   </div>
-                </div>
-              }
-            >
-              <div className="space-y-4 mb-4 border-b border-border/50 pb-4">
-                <div className="grid gap-2">
-                  <Select value={selectedPlanId} onValueChange={handlePlanSelect}>
+        </div>
+      }
+    >
+      <div className="space-y-4 mb-4 border-b border-border/50 pb-4">
+        <div className="grid gap-2">
+          <Select value={selectedPlanId} onValueChange={handlePlanSelect}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select a plan to edit..." />
                     </SelectTrigger>
@@ -2468,6 +2510,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                   placeholder="How did the session feel? Any PRs, form cues, or things to remember next time…"
                   value={sessionNotes}
                   onChange={(e) => {
+                    touchedNotesRef.current = true;
                     setSessionNotes(e.target.value);
                     setHasDirtyWorkout(true);
                   }}

@@ -28,7 +28,7 @@ interface JournalHistoryDoc extends JournalDoc {
 }
 
 export class JournalService {
-  private static async logAudit(action: string, userId: string, details?: Record<string, any>) {
+  private static async logAudit(action: string, userId: string, details?: Record<string, unknown>) {
     try {
       const { AuditService } = await import("@/services/audit.service");
       const user = await UserRepository.findById(userId);
@@ -250,14 +250,14 @@ export class JournalService {
         food,
         currency: String(data.currency ?? "USD"),
         spending,
-        tasks: Array.isArray(data.tasks)
+        tasks: data.tasks !== undefined
           ? data.tasks.map((t) => ({
               title: t.title,
               duration: t.duration ?? "",
               done: t.done ?? false,
             }))
-          : [],
-        workouts: Array.isArray(data.workouts) ? data.workouts : [],
+          : undefined,
+        workouts: data.workouts !== undefined ? data.workouts : undefined,
       }),
       UserActivityService.recordActivity(userId),
     ]);
