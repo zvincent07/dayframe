@@ -5,6 +5,8 @@ export interface IJournalMedia extends Document {
   date: string;
   images: string[];
   foodImages: string[];
+  /** Encrypted payload for sensitive fields (images, foodImages). */
+  enc?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -15,6 +17,7 @@ const JournalMediaSchema = new Schema<IJournalMedia>(
     date: { type: String, required: true, index: true },
     images: [{ type: String }],
     foodImages: [{ type: String }],
+    enc: { type: String },
   },
   { timestamps: true, collection: "journal_media" }
 );

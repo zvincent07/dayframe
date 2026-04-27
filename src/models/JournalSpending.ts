@@ -12,6 +12,8 @@ export interface IJournalSpending extends Document {
   currency: string;
   spending: ISpendingEntry[];
   totalSpent?: number;
+  /** Encrypted payload for sensitive fields (spending entries). */
+  enc?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,6 +31,7 @@ const JournalSpendingSchema = new Schema<IJournalSpending>(
         description: String,
       },
     ],
+    enc: { type: String },
   },
   { timestamps: true, collection: "journal_spending" }
 );

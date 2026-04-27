@@ -16,6 +16,10 @@ export interface IJournal extends Document {
   mainTask?: string;
   notes?: string;
   isBookmarked?: boolean;
+  /** True when the entry has user-authored text content (encrypted at rest). */
+  hasContent?: boolean;
+  /** Encrypted payload for sensitive fields (mainTask, notes, mentorsComments, etc.). */
+  enc?: string;
   mentorsComments: IMentorComment[];
   createdAt: Date;
   updatedAt: Date;
@@ -28,6 +32,8 @@ const JournalSchema = new Schema<IJournal>(
     mainTask: { type: String },
     notes: { type: String },
     isBookmarked: { type: Boolean, default: false },
+    hasContent: { type: Boolean, default: false, index: true },
+    enc: { type: String },
     mentorsComments: [
       {
         mentorId: { type: Schema.Types.ObjectId, ref: "User", required: true },

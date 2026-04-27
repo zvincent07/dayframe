@@ -7,38 +7,97 @@ import { JournalTasks, ITaskEntry } from "@/models/JournalTasks";
 import { JournalWorkouts, IWorkoutEntry } from "@/models/JournalWorkouts";
 import { DailyTask } from "@/models/DailyTask";
 import connectDB, { toObjectId } from "@/lib/mongodb";
+import { decryptJsonFromDb, encryptJsonForDb } from "@/lib/db-encryption";
+
+function decryptCore(coreRaw: Record<string, unknown>): Record<string, unknown> {
+  const enc = coreRaw.enc;
+  const decrypted = decryptJsonFromDb<{ mainTask?: string; notes?: string; mentorsComments?: unknown }>(enc);
+  if (!decrypted) return coreRaw;
+  return {
+    ...coreRaw,
+    ...(decrypted.mainTask !== undefined ? { mainTask: decrypted.mainTask } : {}),
+    ...(decrypted.notes !== undefined ? { notes: decrypted.notes } : {}),
+    ...(decrypted.mentorsComments !== undefined ? { mentorsComments: decrypted.mentorsComments } : {}),
+  };
+}
+
+function decryptFood(doc: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!doc) return null;
+  const decrypted = decryptJsonFromDb<{ food?: IFoodLog }>(doc.enc);
+  if (!decrypted) return doc;
+  return { ...doc, ...(decrypted.food ? { food: decrypted.food } : {}) };
+}
+
+function decryptMedia(doc: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!doc) return null;
+  const decrypted = decryptJsonFromDb<{ images?: string[]; foodImages?: string[] }>(doc.enc);
+  if (!decrypted) return doc;
+  return {
+    ...doc,
+    ...(decrypted.images ? { images: decrypted.images } : {}),
+    ...(decrypted.foodImages ? { foodImages: decrypted.foodImages } : {}),
+  };
+}
+
+function decryptTasks(doc: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!doc) return null;
+  const decrypted = decryptJsonFromDb<{ tasks?: ITaskEntry[] }>(doc.enc);
+  if (!decrypted) return doc;
+  return { ...doc, ...(decrypted.tasks ? { tasks: decrypted.tasks } : {}) };
+}
+
+function decryptSpending(doc: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!doc) return null;
+  const decrypted = decryptJsonFromDb<{ spending?: ISpendingEntry[] }>(doc.enc);
+  if (!decrypted) return doc;
+  return { ...doc, ...(decrypted.spending ? { spending: decrypted.spending } : {}) };
+}
+
+function decryptWorkouts(doc: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!doc) return null;
+  const decrypted = decryptJsonFromDb<{ workouts?: IWorkoutEntry[]; notes?: string }>(doc.enc);
+  if (!decrypted) return doc;
+  return {
+    ...doc,
+    ...(decrypted.workouts ? { workouts: decrypted.workouts } : {}),
+    ...(decrypted.notes !== undefined ? { notes: decrypted.notes } : {}),
+  };
+}
 
 export class JournalRepository {
   static async findSpendingByDateRange(userId: string, startDate: string, endDate: string) {
     await connectDB();
     const uid = toObjectId(userId);
-    return JournalSpending.find({
+    const rows = await JournalSpending.find({
       userId: uid,
       date: { $gte: startDate, $lte: endDate },
     })
-      .select("date currency spending totalSpent")
-      .lean();
+      .select("date currency spending totalSpent enc")
+      .lean<Record<string, unknown>[]>();
+    return rows.map((r) => decryptSpending(r) as Record<string, unknown>);
   }
   static async findFoodByDateRange(userId: string, startDate: string, endDate: string) {
     await connectDB();
     const uid = toObjectId(userId);
-    return JournalFood.find({
+    const rows = await JournalFood.find({
       userId: uid,
       date: { $gte: startDate, $lte: endDate },
     })
-      .select("date food")
-      .lean();
+      .select("date food enc")
+      .lean<Record<string, unknown>[]>();
+    return rows.map((r) => decryptFood(r) as Record<string, unknown>);
   }
 
   static async findTasksByDateRange(userId: string, startDate: string, endDate: string) {
     await connectDB();
     const uid = toObjectId(userId);
-    return JournalTasks.find({
+    const rows = await JournalTasks.find({
       userId: uid,
       date: { $gte: startDate, $lte: endDate },
     })
-      .select("date tasks")
-      .lean();
+      .select("date tasks enc")
+      .lean<Record<string, unknown>[]>();
+    return rows.map((r) => decryptTasks(r) as Record<string, unknown>);
   }
 
   static async findJournalDates(userId: string) {
@@ -56,8 +115,7 @@ export class JournalRepository {
     return Journal.countDocuments({
       userId: uid,
       $or: [
-        { mainTask: { $type: "string", $ne: "" } },
-        { notes: { $type: "string", $ne: "" } },
+        { hasContent: true },
         { isBookmarked: true },
         { bookmarked: true }
       ],
@@ -99,16 +157,22 @@ export class JournalRepository {
     const uid = toObjectId(userId);
     const filter = { userId: uid, date };
 
-    const [coreRaw, media, food, spending, tasks, workouts] = await Promise.all([
+    const [coreRawBase, mediaBase, foodBase, spendingBase, tasksBase, workoutsBase] = await Promise.all([
       Journal.collection.findOne(filter) as Promise<Record<string, unknown> | null>,
-      JournalMedia.findOne(filter).lean(),
-      JournalFood.findOne(filter).lean(),
-      JournalSpending.findOne(filter).lean(),
-      JournalTasks.findOne(filter).lean(),
-      JournalWorkouts.findOne(filter).lean(),
+      JournalMedia.findOne(filter).lean<Record<string, unknown> | null>(),
+      JournalFood.findOne(filter).lean<Record<string, unknown> | null>(),
+      JournalSpending.findOne(filter).lean<Record<string, unknown> | null>(),
+      JournalTasks.findOne(filter).lean<Record<string, unknown> | null>(),
+      JournalWorkouts.findOne(filter).lean<Record<string, unknown> | null>(),
     ]);
 
-    if (!coreRaw) return null;
+    if (!coreRawBase) return null;
+    const coreRaw = decryptCore(coreRawBase);
+    const media = decryptMedia(mediaBase);
+    const food = decryptFood(foodBase);
+    const spending = decryptSpending(spendingBase);
+    const tasks = decryptTasks(tasksBase);
+    const workouts = decryptWorkouts(workoutsBase);
 
     return {
       core: coreRaw,
@@ -143,13 +207,21 @@ export class JournalRepository {
     const promises: Promise<unknown>[] = [];
 
     if (updates.mainTask !== undefined || updates.notes !== undefined) {
+      const mainTask = updates.mainTask !== undefined ? String(updates.mainTask ?? "") : undefined;
+      const notes = updates.notes !== undefined ? String(updates.notes ?? "") : undefined;
+      const hasContent =
+        (typeof mainTask === "string" && mainTask.trim().length > 0) ||
+        (typeof notes === "string" && notes.trim().length > 0);
+      const enc = encryptJsonForDb({ mainTask, notes });
       promises.push(
         Journal.findOneAndUpdate(
           filter,
           {
             $set: {
-              ...(updates.mainTask !== undefined && { mainTask: updates.mainTask }),
-              ...(updates.notes !== undefined && { notes: updates.notes }),
+              ...(updates.mainTask !== undefined && { mainTask: "" }),
+              ...(updates.notes !== undefined && { notes: "" }),
+              hasContent,
+              enc,
             },
           },
           opts
@@ -158,13 +230,17 @@ export class JournalRepository {
     }
 
     if (updates.images !== undefined || updates.foodImages !== undefined) {
+      const images = updates.images !== undefined ? (Array.isArray(updates.images) ? [...updates.images] : []) : undefined;
+      const foodImages = updates.foodImages !== undefined ? (Array.isArray(updates.foodImages) ? [...updates.foodImages] : []) : undefined;
+      const enc = encryptJsonForDb({ images, foodImages });
       promises.push(
         JournalMedia.findOneAndUpdate(
           filter,
           {
             $set: {
-              ...(updates.images !== undefined && { images: updates.images }),
-              ...(updates.foodImages !== undefined && { foodImages: updates.foodImages }),
+              ...(updates.images !== undefined && { images: [] }),
+              ...(updates.foodImages !== undefined && { foodImages: [] }),
+              enc,
             },
           },
           opts
@@ -173,15 +249,17 @@ export class JournalRepository {
     }
 
     if (updates.food !== undefined) {
-      promises.push(JournalFood.findOneAndUpdate(filter, { $set: { food: updates.food } }, opts));
+      const enc = encryptJsonForDb({ food: updates.food });
+      promises.push(JournalFood.findOneAndUpdate(filter, { $set: { food: {}, enc } }, opts));
     }
 
     if (updates.currency !== undefined || updates.spending !== undefined) {
       const spendingUpdate: Partial<Pick<IJournalSpending, "currency" | "spending" | "totalSpent">> = {};
       if (updates.currency !== undefined) spendingUpdate.currency = updates.currency;
       if (updates.spending !== undefined) {
-        spendingUpdate.spending = updates.spending;
+        spendingUpdate.spending = [];
         spendingUpdate.totalSpent = updates.spending.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
+        (spendingUpdate as Record<string, unknown>).enc = encryptJsonForDb({ spending: updates.spending });
       }
       promises.push(
         JournalSpending.findOneAndUpdate(
@@ -195,12 +273,14 @@ export class JournalRepository {
     }
 
     if (updates.tasks !== undefined) {
-      promises.push(JournalTasks.findOneAndUpdate(filter, { $set: { tasks: updates.tasks } }, opts));
+      const enc = encryptJsonForDb({ tasks: updates.tasks });
+      promises.push(JournalTasks.findOneAndUpdate(filter, { $set: { tasks: [], enc } }, opts));
     }
 
     if (updates.workouts !== undefined) {
+      const enc = encryptJsonForDb({ workouts: updates.workouts });
       promises.push(
-        JournalWorkouts.findOneAndUpdate(filter, { $set: { workouts: updates.workouts } }, opts)
+        JournalWorkouts.findOneAndUpdate(filter, { $set: { workouts: [], enc } }, opts)
       );
     }
 
@@ -218,10 +298,11 @@ export class JournalRepository {
     const filter = { userId: uid, date };
     const opts = { upsert: true };
 
+    const mediaEnc = encryptJsonForDb({ foodImages: Array.isArray(foodImages) ? [...foodImages] : [] });
     await Promise.all([
       JournalMedia.findOneAndUpdate(
         filter,
-        { $set: { foodImages: Array.isArray(foodImages) ? [...foodImages] : [] } },
+        { $set: { foodImages: [], enc: mediaEnc } },
         opts
       ),
       JournalSpending.findOneAndUpdate(
@@ -235,7 +316,9 @@ export class JournalRepository {
   static async findByDate(userId: string, date: string) {
     await connectDB();
     const uid = toObjectId(userId);
-    return Journal.findOne({ userId: uid, date });
+    const doc = await Journal.findOne({ userId: uid, date }).lean<Record<string, unknown> | null>();
+    if (!doc) return null;
+    return decryptCore(doc);
   }
 
   static async updateIsBookmarked(userId: string, date: string, isBookmarked: boolean) {
@@ -266,7 +349,7 @@ export class JournalRepository {
     
     // We need to aggregate data from multiple collections to provide a complete history overview
     const journalEntries = await Journal.find({ userId: uid })
-      .select("date mainTask notes isBookmarked bookmarked updatedAt createdAt")
+      .select("date mainTask notes isBookmarked bookmarked updatedAt createdAt enc hasContent")
       .sort({ date: -1 })
       .limit(limit)
       .lean();
@@ -275,28 +358,29 @@ export class JournalRepository {
     const dates = journalEntries.map(e => e.date);
     
     const [mediaDocs, foodDocs, spendingDocs] = await Promise.all([
-      JournalMedia.find({ userId: uid, date: { $in: dates } }).select("date images foodImages").lean(),
-      JournalFood.find({ userId: uid, date: { $in: dates } }).select("date food").lean(),
-      JournalSpending.find({ userId: uid, date: { $in: dates } }).select("date spending currency").lean()
+      JournalMedia.find({ userId: uid, date: { $in: dates } }).select("date images foodImages enc").lean(),
+      JournalFood.find({ userId: uid, date: { $in: dates } }).select("date food enc").lean(),
+      JournalSpending.find({ userId: uid, date: { $in: dates } }).select("date spending currency enc").lean()
     ]);
 
-    const mediaMap = new Map(mediaDocs.map(d => [d.date, d]));
-    const foodMap = new Map(foodDocs.map(d => [d.date, d]));
-    const spendingMap = new Map(spendingDocs.map(d => [d.date, d]));
+    const mediaMap = new Map(mediaDocs.map(d => [d.date, decryptMedia(d as unknown as Record<string, unknown>)]));
+    const foodMap = new Map(foodDocs.map(d => [d.date, decryptFood(d as unknown as Record<string, unknown>)]));
+    const spendingMap = new Map(spendingDocs.map(d => [d.date, decryptSpending(d as unknown as Record<string, unknown>)]));
 
     return journalEntries.map(entry => {
+      const core = decryptCore(entry as unknown as Record<string, unknown>);
       const media = mediaMap.get(entry.date);
       const foodDoc = foodMap.get(entry.date);
       const spendingDoc = spendingMap.get(entry.date);
 
-      const images = media?.images || [];
-      const foodImages = media?.foodImages || [];
+      const images = Array.isArray((media as Record<string, unknown> | null)?.images) ? ((media as Record<string, unknown>).images as string[]) : [];
+      const foodImages = Array.isArray((media as Record<string, unknown> | null)?.foodImages) ? ((media as Record<string, unknown>).foodImages as string[]) : [];
       const foodData = foodDoc?.food || null;
-      const spendingData = spendingDoc?.spending || [];
-      const currency = spendingDoc?.currency || "USD";
+      const spendingData = Array.isArray((spendingDoc as Record<string, unknown> | null)?.spending) ? ((spendingDoc as Record<string, unknown>).spending as ISpendingEntry[]) : [];
+      const currency = typeof (spendingDoc as Record<string, unknown> | null)?.currency === "string" ? ((spendingDoc as Record<string, unknown>).currency as string) : "USD";
 
       return {
-        ...entry,
+        ...core,
         imagesCount: (images.length || 0) + (foodImages.length || 0),
         hasFoodLog: foodData && Object.values(foodData || {}).some(v => typeof v === 'string' && v.trim().length > 0),
         food: foodData,
@@ -310,25 +394,28 @@ export class JournalRepository {
   static async findJournalsByUser(userId: string) {
     await connectDB();
     const uid = toObjectId(userId);
-    return Journal.find({ userId: uid })
-      .select("date mainTask notes isBookmarked bookmarked")
-      .lean();
+    const rows = await Journal.find({ userId: uid })
+      .select("date mainTask notes isBookmarked bookmarked enc hasContent")
+      .lean<Record<string, unknown>[]>();
+    return rows.map((r) => decryptCore(r));
   }
 
   static async findMediaByUser(userId: string) {
     await connectDB();
     const uid = toObjectId(userId);
-    return JournalMedia.find({ userId: uid })
-      .select("date images foodImages")
-      .lean();
+    const rows = await JournalMedia.find({ userId: uid })
+      .select("date images foodImages enc")
+      .lean<Record<string, unknown>[]>();
+    return rows.map((r) => decryptMedia(r) as Record<string, unknown>);
   }
 
   static async findFoodByUser(userId: string) {
     await connectDB();
     const uid = toObjectId(userId);
-    return JournalFood.find({ userId: uid })
-      .select("date food")
-      .lean();
+    const rows = await JournalFood.find({ userId: uid })
+      .select("date food enc")
+      .lean<Record<string, unknown>[]>();
+    return rows.map((r) => decryptFood(r) as Record<string, unknown>);
   }
 
   static async findSpendingByUser(userId: string) {

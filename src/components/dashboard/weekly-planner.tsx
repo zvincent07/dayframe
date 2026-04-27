@@ -17,21 +17,11 @@ function orderedDays(weekStartsOn: 'sunday' | 'monday') {
   return [...DAYS_SUN_FIRST.slice(1), DAYS_SUN_FIRST[0]];
 }
 
-function readFirstDayFromLs(): 'sunday' | 'monday' | null {
-  try {
-    const v = localStorage.getItem('df_first_day_of_week');
-    return v === 'monday' || v === 'sunday' ? v : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Prefer server Monday; if server still Sunday, trust localStorage (same-tab settings save). */
-function resolveWeekStartsOn(server: 'sunday' | 'monday'): 'sunday' | 'monday' {
+function resolveWeekStartsOn(server: 'sunday' | 'monday', local: 'sunday' | 'monday' | null): 'sunday' | 'monday' {
   if (server === 'monday') return 'monday';
-  const ls = readFirstDayFromLs();
-  if (ls === 'monday') return 'monday';
-  if (ls === 'sunday') return 'sunday';
+  if (local === 'monday') return 'monday';
+  if (local === 'sunday') return 'sunday';
   return server;
 }
 
@@ -75,9 +65,20 @@ export function WeeklyPlanner({ initialTasks, weekStartsOn = 'sunday' }: WeeklyP
   const [tasks, setTasks] = useState(initialTasks);
   const [isPending, startTransition] = useTransition();
   const [resolvedWeekStart, setResolvedWeekStart] = useState<'sunday' | 'monday'>(weekStartsOn);
+  const [localFirstDay, setLocalFirstDay] = useState<'sunday' | 'monday' | null>(null);
 
   useLayoutEffect(() => {
-    const apply = () => setResolvedWeekStart(resolveWeekStartsOn(weekStartsOn));
+    const apply = () => {
+      let local: 'sunday' | 'monday' | null = null;
+      try {
+        const v = localStorage.getItem('df_first_day_of_week');
+        local = v === 'monday' || v === 'sunday' ? v : null;
+      } catch {
+        local = null;
+      }
+      setLocalFirstDay(local);
+      setResolvedWeekStart(resolveWeekStartsOn(weekStartsOn, local));
+    };
     apply();
     window.addEventListener('df-first-day-updated', apply);
     return () => window.removeEventListener('df-first-day-updated', apply);

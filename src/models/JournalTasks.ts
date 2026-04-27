@@ -10,6 +10,8 @@ export interface IJournalTasks extends Document {
   userId: mongoose.Types.ObjectId;
   date: string;
   tasks: ITaskEntry[];
+  /** Encrypted payload for sensitive fields (tasks). */
+  enc?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -25,6 +27,7 @@ const JournalTasksSchema = new Schema<IJournalTasks>(
         done: { type: Boolean, default: false },
       },
     ],
+    enc: { type: String },
   },
   { timestamps: true, collection: "journal_tasks" }
 );

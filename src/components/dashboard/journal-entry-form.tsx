@@ -105,6 +105,7 @@ export function JournalEntryForm({
   const [foodImages, setFoodImages] = useState<string[]>([]);
   const [spending, setSpending] = useState<SpendingEntry[]>([]);
   const defaultCurrency = preferredCurrency.trim().toUpperCase() || "USD";
+  const [localPreferredCurrency, setLocalPreferredCurrency] = useState<string | null>(null);
   const resolveDisplayCurrency = useCallback(
     (entryCurrency?: string | null) => {
       let stored = entryCurrency?.trim().toUpperCase() || "";
@@ -113,15 +114,10 @@ export function JournalEntryForm({
         stored = "";
       }
       if (stored) return stored;
-      try {
-        const ls = localStorage.getItem("df_preferred_currency")?.trim().toUpperCase();
-        if (ls) return ls;
-      } catch {
-        /* ignore */
-      }
+      if (localPreferredCurrency) return localPreferredCurrency;
       return defaultCurrency;
     },
-    [defaultCurrency]
+    [defaultCurrency, localPreferredCurrency]
   );
   const initialResolvedCurrency = resolveDisplayCurrency(null);
   const [currency, setCurrency] = useState(initialResolvedCurrency);
@@ -160,6 +156,12 @@ export function JournalEntryForm({
   const [analyzingIndex, setAnalyzingIndex] = useState<number | null>(null);
   const [weekStartsOn, setWeekStartsOn] = useState<0 | 1>(0);
   useEffect(() => {
+    try {
+      const v = localStorage.getItem("df_preferred_currency");
+      setLocalPreferredCurrency(v?.trim().toUpperCase() || null);
+    } catch {
+      setLocalPreferredCurrency(null);
+    }
     const read = () => {
       try {
         const pref = localStorage.getItem("df_first_day_of_week");

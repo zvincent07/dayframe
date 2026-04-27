@@ -3,6 +3,7 @@ import connectDB, { toObjectId } from "@/lib/mongodb";
 import { WorkoutRoutine, IWorkoutRoutine } from "@/models/WorkoutRoutine";
 import { WorkoutPlan, IWorkoutPlan } from "@/models/WorkoutPlan";
 import { JournalWorkouts, IWorkoutEntry } from "@/models/JournalWorkouts";
+import { decryptJsonFromDb, encryptJsonForDb } from "@/lib/db-encryption";
 
 async function ensureWorkoutPlanIndexes() {
   await connectDB();
@@ -164,20 +165,29 @@ export class WorkoutRepository {
   static async findWorkoutLog(userId: string, date: string) {
     await connectDB();
     const uid = toObjectId(userId);
-    return JournalWorkouts.findOne({ userId: uid, date }).lean();
+    const doc = await JournalWorkouts.findOne({ userId: uid, date }).lean<Record<string, unknown> | null>();
+    if (!doc) return null;
+    const decrypted = decryptJsonFromDb<{ workouts?: IWorkoutEntry[]; notes?: string }>(doc.enc);
+    if (!decrypted) return doc;
+    return {
+      ...doc,
+      workouts: decrypted.workouts ?? (doc.workouts as IWorkoutEntry[] | undefined) ?? [],
+      notes: decrypted.notes ?? (doc.notes as string | undefined) ?? "",
+    };
   }
 
   static async upsertWorkoutLog(userId: string, date: string, workouts: IWorkoutEntry[], finished?: boolean, notes?: string) {
     await connectDB();
     const uid = toObjectId(userId);
 
-    const updateFields: Record<string, unknown> = { workouts };
+    const updateFields: Record<string, unknown> = {
+      workouts: [],
+      notes: "",
+      enc: encryptJsonForDb({ workouts, notes: notes ?? "" }),
+    };
     if (finished !== undefined) {
       updateFields.finished = !!finished;
       updateFields.completedAt = finished ? new Date() : null;
-    }
-    if (notes !== undefined) {
-      updateFields.notes = notes;
     }
 
     return JournalWorkouts.findOneAndUpdate(
@@ -190,12 +200,21 @@ export class WorkoutRepository {
   static async findWorkoutHistory(userId: string, start: string, end: string) {
     await connectDB();
     const uid = toObjectId(userId);
-    return JournalWorkouts.find({
+    const rows = await JournalWorkouts.find({
       userId: uid,
       date: { $gte: start, $lte: end },
     })
       .sort({ date: -1 })
-      .lean();
+      .lean<Record<string, unknown>[]>();
+    return rows.map((doc) => {
+      const decrypted = decryptJsonFromDb<{ workouts?: IWorkoutEntry[]; notes?: string }>(doc.enc);
+      if (!decrypted) return doc;
+      return {
+        ...doc,
+        workouts: decrypted.workouts ?? (doc.workouts as IWorkoutEntry[] | undefined) ?? [],
+        notes: decrypted.notes ?? (doc.notes as string | undefined) ?? "",
+      };
+    });
   }
 
   /** Date keys only — for heatmaps / calendars without loading full workout payloads. */
@@ -210,69 +229,37 @@ export class WorkoutRepository {
   }
 
   /**
-   * Single aggregation for profile stats — avoids loading every workout document into Node.
+   * Profile stats. With encrypted-at-rest workout payloads, we compute in Node after decrypting.
    */
   static async getProfileWorkoutAggregates(
     userId: string,
   ): Promise<{ workoutsLogged: number; totalVolumeKg: number }> {
     await connectDB();
     const uid = toObjectId(userId);
-    const pipeline: mongoose.PipelineStage[] = [
-      { $match: { userId: uid } },
-      {
-        $facet: {
-          loggedDays: [
-            { $match: { "workouts.0": { $exists: true } } },
-            { $count: "n" },
-          ],
-          volume: [
-            { $unwind: { path: "$workouts", preserveNullAndEmptyArrays: false } },
-            { $unwind: { path: "$workouts.history", preserveNullAndEmptyArrays: false } },
-            { $match: { "workouts.history.completed": true } },
-            {
-              $project: {
-                w: {
-                  $let: {
-                    vars: {
-                      val: { $ifNull: ["$workouts.history.actualWeight", { $ifNull: ["$workouts.history.targetWeight", 0] }] }
-                    },
-                    in: {
-                      $convert: {
-                        input: "$$val",
-                        to: "double",
-                        onError: 0,
-                        onNull: 0
-                      }
-                    }
-                  }
-                },
-                r: {
-                  $ifNull: [
-                    "$workouts.history.actualReps",
-                    { $ifNull: ["$workouts.history.targetReps", 0] },
-                  ],
-                },
-              },
-            },
-            {
-              $project: {
-                v: { $multiply: ["$w", "$r"] },
-              },
-            },
-            { $group: { _id: null, total: { $sum: "$v" } } },
-          ],
-        },
-      },
-    ];
-    const rows = await JournalWorkouts.aggregate(pipeline);
-    const row = rows[0] as
-      | {
-          loggedDays: { n: number }[];
-          volume: { total: number }[];
+    const docs = await JournalWorkouts.find({ userId: uid })
+      .select("enc workouts notes")
+      .lean<Record<string, unknown>[]>();
+
+    let workoutsLogged = 0;
+    let totalVolumeKg = 0;
+
+    for (const doc of docs) {
+      const decrypted = decryptJsonFromDb<{ workouts?: IWorkoutEntry[] }>(doc.enc);
+      const workouts = decrypted?.workouts ?? (doc.workouts as IWorkoutEntry[] | undefined) ?? [];
+      if (workouts.length > 0) workoutsLogged += 1;
+
+      for (const w of workouts) {
+        const history = Array.isArray(w.history) ? w.history : [];
+        for (const h of history) {
+          if (!h?.completed) continue;
+          const reps = typeof h.actualReps === "number" ? h.actualReps : typeof h.targetReps === "number" ? h.targetReps : 0;
+          const rawWeight = h.actualWeight ?? h.targetWeight ?? 0;
+          const weight = typeof rawWeight === "number" ? rawWeight : 0;
+          totalVolumeKg += weight * reps;
         }
-      | undefined;
-    const workoutsLogged = row?.loggedDays?.[0]?.n ?? 0;
-    const totalRaw = row?.volume?.[0]?.total ?? 0;
-    return { workoutsLogged, totalVolumeKg: Math.round(Number(totalRaw)) };
+      }
+    }
+
+    return { workoutsLogged, totalVolumeKg: Math.round(totalVolumeKg) };
   }
 }

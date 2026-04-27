@@ -23,6 +23,8 @@ export interface IJournalWorkouts extends Document {
   finished?: boolean;
   completedAt?: Date | null;
   notes?: string;
+  /** Encrypted payload for sensitive fields (workouts, notes). */
+  enc?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -53,6 +55,7 @@ const JournalWorkoutsSchema = new Schema<IJournalWorkouts>(
     finished: { type: Boolean, default: false },
     completedAt: { type: Date, default: null },
     notes: { type: String, default: "" },
+    enc: { type: String },
   },
   { timestamps: true, collection: "journal_workouts" }
 );

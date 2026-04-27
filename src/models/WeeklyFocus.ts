@@ -11,6 +11,8 @@ export interface IWeeklyFocus extends Document {
     friday: string;
     saturday: string;
   };
+  /** Encrypted payload for sensitive fields (tasks). */
+  enc?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -27,6 +29,7 @@ const WeeklyFocusSchema = new Schema<IWeeklyFocus>(
       friday: { type: String, default: '' },
       saturday: { type: String, default: '' },
     },
+    enc: { type: String },
   },
   { timestamps: true, collection: "weekly_focus" }
 );

@@ -1,6 +1,7 @@
 import { WeeklyFocus, IWeeklyFocus } from '@/models/WeeklyFocus';
 import connectDB from '@/lib/mongodb';
 import { logger } from '@/lib/logger';
+import { decryptJsonFromDb, encryptJsonForDb } from "@/lib/db-encryption";
 
 export class WeeklyFocusService {
   private static async logAudit(action: string, userId: string, details?: Record<string, any>) {
@@ -18,31 +19,36 @@ export class WeeklyFocusService {
 
   static async getWeeklyFocus(userId: string) {
     await connectDB();
-    const focus = await WeeklyFocus.findOne({ userId }).lean();
+    const focus = await WeeklyFocus.findOne({ userId }).lean<Record<string, unknown> | null>();
     if (!focus) return null;
-    
-    // Serialize MongoDB object to plain JSON
-    return JSON.parse(JSON.stringify(focus));
+
+    const decrypted = decryptJsonFromDb<{ tasks?: IWeeklyFocus["tasks"] }>(focus.enc);
+    const merged = decrypted?.tasks ? { ...focus, tasks: decrypted.tasks } : focus;
+    return JSON.parse(JSON.stringify(merged));
   }
 
   static async updateWeeklyFocus(userId: string, tasks: Partial<IWeeklyFocus['tasks']>) {
     await connectDB();
-    
-    // Construct the update object using dot notation for nested fields
-    // This ensures we only update the specific day provided, not replace the whole 'tasks' object
-    const update: Record<string, string> = {};
+
+    const existing = await WeeklyFocus.findOne({ userId }).lean<Record<string, unknown> | null>();
+    const decrypted = existing ? decryptJsonFromDb<{ tasks?: IWeeklyFocus["tasks"] }>(existing.enc) : null;
+    const currentTasks: IWeeklyFocus["tasks"] =
+      decrypted?.tasks ??
+      (existing?.tasks as IWeeklyFocus["tasks"] | undefined) ??
+      { sunday: "", monday: "", tuesday: "", wednesday: "", thursday: "", friday: "", saturday: "" };
+
+    const nextTasks: IWeeklyFocus["tasks"] = { ...currentTasks, ...tasks };
     for (const [key, value] of Object.entries(tasks)) {
-      update[`tasks.${key}`] = value as string;
       WeeklyFocusService.logAudit("WEEKLY_FOCUS_UPDATED", userId, { day: key, focus: value }).catch(() => {});
     }
 
+    const enc = encryptJsonForDb({ tasks: nextTasks });
     const focus = await WeeklyFocus.findOneAndUpdate(
       { userId },
-      { $set: update },
+      { $set: { tasks: { sunday: "", monday: "", tuesday: "", wednesday: "", thursday: "", friday: "", saturday: "" }, enc } },
       { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true }
     ).lean();
-    
-    // Serialize MongoDB object to plain JSON
-    return JSON.parse(JSON.stringify(focus));
+
+    return JSON.parse(JSON.stringify({ ...(focus as Record<string, unknown>), tasks: nextTasks }));
   }
 }

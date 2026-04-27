@@ -82,7 +82,7 @@ interface VisitRecord {
   at: number;
 }
 
-function loadVisitHistory(): VisitRecord[] {
+async function loadVisitHistory(): Promise<VisitRecord[]> {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(VISIT_HISTORY_KEY);
@@ -93,10 +93,11 @@ function loadVisitHistory(): VisitRecord[] {
   }
 }
 
-function saveVisitHistory(history: VisitRecord[]) {
+async function saveVisitHistory(history: VisitRecord[]): Promise<void> {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(VISIT_HISTORY_KEY, JSON.stringify(history));
+    const payload = JSON.stringify(history);
+    localStorage.setItem(VISIT_HISTORY_KEY, payload);
   } catch {}
 }
 
@@ -350,7 +351,7 @@ export function EmbeddedBrowser({ fullPage = false }: EmbeddedBrowserProps) {
   useEffect(() => {
     const ac = new AbortController();
     setMounted(true);
-    setVisitHistory(loadVisitHistory());
+    void loadVisitHistory().then(setVisitHistory);
 
     const finishHydration = (nextTabs: Tab[], nextGroups: TabGroup[], nextActiveId: string) => {
       if (ac.signal.aborted) return;
@@ -526,12 +527,12 @@ export function EmbeddedBrowser({ fullPage = false }: EmbeddedBrowserProps) {
     setVisitHistory((prev) => {
       if (prev[0]?.url === entry.url) {
         const next = [{ ...entry }, ...prev.slice(1)].slice(0, MAX_VISIT_HISTORY);
-        saveVisitHistory(next);
+        void saveVisitHistory(next);
         return next;
       }
       const filtered = prev.filter((e) => e.url !== entry.url);
       const next = [entry, ...filtered].slice(0, MAX_VISIT_HISTORY);
-        saveVisitHistory(next);
+        void saveVisitHistory(next);
       return next;
     });
   }, []);
@@ -1452,7 +1453,7 @@ export function EmbeddedBrowser({ fullPage = false }: EmbeddedBrowserProps) {
                     ))
                   )}
                   {visitHistory.length > 0 && (
-                    <Button variant="outline" size="sm" className="mt-4 w-full text-xs" onClick={() => { setVisitHistory([]); saveVisitHistory([]); toast.success("History cleared"); }}>
+                    <Button variant="outline" size="sm" className="mt-4 w-full text-xs" onClick={() => { setVisitHistory([]); void saveVisitHistory([]); toast.success("History cleared"); }}>
                       Clear History
                     </Button>
                   )}

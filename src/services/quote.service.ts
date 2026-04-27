@@ -1,6 +1,7 @@
 import { Quote } from '@/models/Quote';
 import connectDB from '@/lib/mongodb';
 import { logger } from '@/lib/logger';
+import { decryptJsonFromDb, encryptJsonForDb } from "@/lib/db-encryption";
 
 export class QuoteService {
   private static async logAudit(action: string, userId: string, details?: Record<string, any>) {
@@ -18,22 +19,31 @@ export class QuoteService {
 
   static async getQuotes(userId: string) {
     await connectDB();
-    const quotes = await Quote.find({ userId }).sort({ createdAt: -1 }).lean();
-    return JSON.parse(JSON.stringify(quotes));
+    const quotes = await Quote.find({ userId }).sort({ createdAt: -1 }).lean<Record<string, unknown>[]>();
+    const mapped = quotes.map((q) => {
+      const decrypted = decryptJsonFromDb<{ content?: string }>(q.enc);
+      return {
+        ...q,
+        content: decrypted?.content ?? (q.content as string | undefined) ?? "",
+      };
+    });
+    return JSON.parse(JSON.stringify(mapped));
   }
 
   static async createQuote(userId: string, data: { content: string; author?: string }) {
     await connectDB();
-    const quote = await Quote.create({ userId, ...data });
+    const enc = encryptJsonForDb({ content: data.content });
+    const quote = await Quote.create({ userId, content: "", author: data.author ?? "", enc });
     QuoteService.logAudit("QUOTE_CREATED", userId, { content: data.content }).catch(() => {});
     return JSON.parse(JSON.stringify(quote));
   }
 
   static async deleteQuote(userId: string, quoteId: string) {
     await connectDB();
-    const quote = await Quote.findOne({ _id: quoteId, userId }).lean();
+    const quote = await Quote.findOne({ _id: quoteId, userId }).lean<Record<string, unknown> | null>();
     if (quote) {
-      QuoteService.logAudit("QUOTE_DELETED", userId, { content: (quote as any).content }).catch(() => {});
+      const decrypted = decryptJsonFromDb<{ content?: string }>(quote.enc);
+      QuoteService.logAudit("QUOTE_DELETED", userId, { content: decrypted?.content ?? quote.content }).catch(() => {});
       await Quote.deleteOne({ _id: quoteId, userId });
     }
     return { success: true };

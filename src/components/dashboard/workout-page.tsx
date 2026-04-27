@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState, useRef, useTransition } from "react";
 import { createPortal } from "react-dom";
-import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
+import {
+  DragDropContext,
+  Droppable,
+  Draggable,
+  type DropResult,
+  type DraggableProvided,
+  type DraggableStateSnapshot,
+} from "@hello-pangea/dnd";
 import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +39,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -43,7 +49,6 @@ import {
 import { saveWorkoutRoutines, saveWorkoutSchedule, saveWorkoutLog, createWorkoutPlan, switchWorkoutPlan, deleteWorkoutPlan, getWorkoutHistory } from "@/actions/workout";
 import { toast } from "sonner";
 import { DAY_LABELS, DEFAULT_WEEKLY_SCHEDULE, LB_PER_KG } from "@/lib/constants";
-import { decryptJsonFromLocalCache, encryptJsonForLocalCache } from "@/lib/client-crypto";
 import type {
   ActiveExercise,
   ActiveSession,
@@ -93,7 +98,6 @@ interface WorkoutPageProps {
   initialFinished?: boolean;
   initialNotes?: string;
   preferredUnits?: "metric" | "imperial";
-  encryptLocalCache?: boolean;
 }
 
 const parseWeightPlan = (plan?: string | null): { weights: (number | string)[]; unit: "kg" | "lbs" } => {
@@ -136,12 +140,25 @@ const CUSTOM_EXERCISE_PREFIX = "custom:";
 function getCustomExerciseNameFromId(exerciseId: string): string | null {
   const raw = String(exerciseId || "");
   if (!raw.toLowerCase().startsWith(CUSTOM_EXERCISE_PREFIX)) return null;
-  const name = raw.slice(CUSTOM_EXERCISE_PREFIX.length).trim();
-  return name.length > 0 ? name : null;
+  return raw.slice(CUSTOM_EXERCISE_PREFIX.length);
 }
 
 function buildCustomExerciseId(name: string): string {
-  return `${CUSTOM_EXERCISE_PREFIX}${String(name || "").trim()}`;
+  return `${CUSTOM_EXERCISE_PREFIX}${String(name || "")}`;
+}
+
+function resolveExerciseById(exerciseId: string): Exercise | undefined {
+  return EXERCISES.find((e) => e.id === exerciseId);
+}
+
+function resolveExerciseNameFromId(exerciseId: string): string {
+  const custom = getCustomExerciseNameFromId(exerciseId);
+  if (custom != null) {
+    const trimmed = custom.trim();
+    return trimmed.length > 0 ? trimmed : "Custom exercise";
+  }
+  const fromList = resolveExerciseById(exerciseId)?.name;
+  return fromList ?? exerciseId;
 }
 
 function parseRepsRange(input: string): { min: number; max: number } {
@@ -599,8 +616,9 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
                 {selectedRoutine?.exercises.map((exercise, index) => {
                   const exId = exercise.id || `${selectedRoutineId}-ex-${index}`;
                   const exerciseMeta = EXERCISES.find((e) => e.id === exercise.exerciseId);
-                  const customName = getCustomExerciseNameFromId(exercise.exerciseId);
-                  const selectValue = customName ? "__custom__" : exercise.exerciseId;
+                  const isCustom = String(exercise.exerciseId || "").toLowerCase().startsWith(CUSTOM_EXERCISE_PREFIX);
+                  const customName = isCustom ? (getCustomExerciseNameFromId(exercise.exerciseId) ?? "") : "";
+                  const selectValue = isCustom ? "__custom__" : exercise.exerciseId;
                   const optionsForRow =
                     exerciseFilter === "all"
                       ? EXERCISES
@@ -609,7 +627,7 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
                             e.category === exerciseFilter || e.id === exercise.exerciseId
                         );
 
-                  const renderExerciseContent = (draggableProvided: any, snapshot: any) => (
+                  const renderExerciseContent = (draggableProvided: DraggableProvided, snapshot: DraggableStateSnapshot) => (
                     <div
                       ref={draggableProvided.innerRef}
                       {...draggableProvided.draggableProps}
@@ -633,7 +651,7 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
                           value={selectValue}
                           onValueChange={(val) => {
                             if (val === "__custom__") {
-                              handleExerciseIdChange(index, buildCustomExerciseId(customName ?? ""));
+                              handleExerciseIdChange(index, buildCustomExerciseId("New exercise"));
                               return;
                             }
                             handleExerciseIdChange(index, val);
@@ -662,7 +680,7 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
                             })}
                           </SelectContent>
                         </Select>
-                        {customName != null && (
+                        {isCustom && (
                           <input
                             type="text"
                             className="h-9 w-full rounded-md border border-border/60 bg-background/60 px-2 text-xs"
@@ -672,7 +690,7 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
                           />
                         )}
                         <span className="text-[11px] text-muted-foreground px-1">
-                          {exerciseMeta?.targetMuscle ?? (customName ? "Custom exercise" : "")}
+                          {exerciseMeta?.targetMuscle ?? (isCustom ? "Custom exercise" : "")}
                         </span>
                       </div>
 
@@ -838,7 +856,6 @@ export function WorkoutPage({
   initialFinished = false,
   initialNotes = "",
   preferredUnits = "metric",
-  encryptLocalCache = false,
 }: WorkoutPageProps) {
   const weightUnitPref: "metric" | "imperial" = preferredUnits === "imperial" ? "imperial" : "metric";
   const router = useRouter();
@@ -964,9 +981,7 @@ export function WorkoutPage({
       try {
         const stored = localStorage.getItem(storageKey);
         if (stored) {
-          const parsed =
-            (await decryptJsonFromLocalCache<ActiveSession>(stored)) ??
-            (JSON.parse(stored) as ActiveSession);
+          const parsed = JSON.parse(stored) as ActiveSession;
           // Ensure stored session matches the *current* active routine structure!
           // If the user switched plans, the stored session might belong to the old plan's routine for today.
           const storedRoutineId = parsed?.exercises?.[0]?.id?.split(":")[0];
@@ -991,7 +1006,7 @@ export function WorkoutPage({
       // 1. First, populate from active routine (targets)
       if (activeRoutine) {
         activeRoutine.exercises.forEach((item, index) => {
-          const name = resolveExerciseName(item.exerciseId);
+          const name = resolveExerciseNameFromId(item.exerciseId);
           const exerciseKey = `${activeRoutine.routineId}:${item.exerciseId}:${index}`;
 
           // Find logs for this specific exercise name
@@ -1057,7 +1072,7 @@ export function WorkoutPage({
       });
 
       setActiveSession({
-        startTime: exercises.some((ex) => ex.sets.some((s) => s.isCompleted)) ? (activeSession.startTime || new Date()) : new Date(),
+        startTime: new Date(),
         exercises,
       });
     })();
@@ -1076,7 +1091,7 @@ export function WorkoutPage({
     touchedNotesRef.current = false;
     touchedSessionRef.current = false;
     setSessionNotes(initialNotes);
-  }, [today]);
+  }, [today, initialNotes]);
   const [isSavingWorkout, setIsSavingWorkout] = useState(false);
   const [hasDirtyWorkout, setHasDirtyWorkout] = useState(false);
   const [isRoutinesModalOpen, setIsRoutinesModalOpen] = useState(false);
@@ -1087,7 +1102,11 @@ export function WorkoutPage({
   const [swapCustomName, setSwapCustomName] = useState<string>("");
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyEntries, setHistoryEntries] = useState<Array<{ _id: string; date: string; workouts: Array<Record<string, unknown>>; finished?: boolean; notes?: string }>>([]);
-  const [importDialogData, setImportDialogData] = useState<{planName: string, data: any, properSchedule: any} | null>(null);
+  const [importDialogData, setImportDialogData] = useState<{
+    planName: string;
+    data: { routines: Routine[] } & Record<string, unknown>;
+    properSchedule: Record<string, unknown>;
+  } | null>(null);
   
   const [selectedPlanId, setSelectedPlanId] = useState<string | "new">("new");
   const [planName, setPlanName] = useState("");
@@ -1207,15 +1226,12 @@ export function WorkoutPage({
     const storageKey = `workout-session-${today}`;
     void (async () => {
       try {
-        const payload = encryptLocalCache
-          ? await encryptJsonForLocalCache(activeSession)
-          : JSON.stringify(activeSession);
-        localStorage.setItem(storageKey, payload);
+        localStorage.setItem(storageKey, JSON.stringify(activeSession));
       } catch {
         // storage full or unavailable
       }
     })();
-  }, [activeSession, today, todayFinished, encryptLocalCache]);
+  }, [activeSession, today, todayFinished]);
 
   // Warn about unsaved changes
   useEffect(() => {
@@ -1229,14 +1245,7 @@ export function WorkoutPage({
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [hasDirtyWorkout]);
 
-  const resolveExercise = (exerciseId: string) => EXERCISES.find((e) => e.id === exerciseId);
-
-  const resolveExerciseName = (exerciseId: string): string => {
-    const custom = getCustomExerciseNameFromId(exerciseId);
-    if (custom) return custom;
-    const fromList = resolveExercise(exerciseId)?.name;
-    return fromList ?? exerciseId;
-  };
+  const resolveExercise = resolveExerciseById;
 
   const [, setPlanSeedVersion] = useState(0);
 
@@ -1513,7 +1522,7 @@ export function WorkoutPage({
     if (!targetKey) return;
     const nextExerciseId =
       swapExerciseId === "__custom__" ? buildCustomExerciseId(swapCustomName) : swapExerciseId;
-    const nextName = resolveExerciseName(nextExerciseId);
+    const nextName = resolveExerciseNameFromId(nextExerciseId);
 
     touchedSessionRef.current = true;
     setActiveSession((prev) => ({
@@ -1554,7 +1563,7 @@ export function WorkoutPage({
   const buildSessionFromRoutine = (): ActiveSession => {
     if (!activeRoutine) return { startTime: null, exercises: [] };
     const exercises: ActiveExercise[] = activeRoutine.exercises.map((item, index) => {
-      const name = resolveExerciseName(item.exerciseId);
+      const name = resolveExerciseNameFromId(item.exerciseId);
       const exerciseKey = `${activeRoutine.routineId}:${item.exerciseId}:${index}`;
       const existingLogs = initialLog.find(l => l.exercise === name)?.history ?? [];
       const { weights } = parseWeightPlan(item.targetWeight);
@@ -1771,9 +1780,34 @@ export function WorkoutPage({
           return;
         }
 
+        const normalizedRoutines: Routine[] = (data.routines as Array<Record<string, unknown>>).map((r, idx) => {
+          const routineId = typeof r?.routineId === "string" && r.routineId.trim() ? r.routineId : `IMPORTED_${idx + 1}`;
+          const name = typeof r?.name === "string" && r.name.trim() ? r.name : `Imported ${idx + 1}`;
+          const exercisesRaw = Array.isArray(r?.exercises) ? (r.exercises as Array<Record<string, unknown>>) : [];
+          const exercises: RoutineExercise[] = exercisesRaw.map((ex) => {
+            const exerciseIdRaw = typeof ex?.exerciseId === "string" ? ex.exerciseId : "";
+            const exerciseId = exerciseIdRaw.trim()
+              ? exerciseIdRaw
+              : buildCustomExerciseId(typeof ex?.name === "string" ? ex.name : "Custom exercise");
+            const targetSets = typeof ex?.targetSets === "number" && Number.isFinite(ex.targetSets) ? ex.targetSets : 3;
+            const targetReps = typeof ex?.targetReps === "string" && ex.targetReps.trim() ? ex.targetReps : "8-10";
+            const targetRPE = typeof ex?.targetRPE === "number" && Number.isFinite(ex.targetRPE) ? ex.targetRPE : 8;
+            const targetWeight = typeof ex?.targetWeight === "string" ? ex.targetWeight : "";
+            const restTime = typeof ex?.restTime === "string" && ex.restTime.trim() ? ex.restTime : "90s";
+            const id = typeof ex?.id === "string" && ex.id.trim() ? ex.id : `ex-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+            return { id, exerciseId, targetSets, targetReps, targetRPE, targetWeight, restTime };
+          });
+          return { routineId, name, exercises };
+        });
+
+        if (normalizedRoutines.length === 0) {
+          toast.error("Import file has no routines to import");
+          return;
+        }
+
         // Ask user if they want to create a new plan or overwrite current one
-        const planName = data.title || "Imported Plan";
-        setImportDialogData({ planName, data, properSchedule });
+        const planName = typeof data.title === "string" && data.title.trim() ? data.title : "Imported Plan";
+        setImportDialogData({ planName, data: { ...data, routines: normalizedRoutines }, properSchedule });
 
       } catch {
         toast.error("Failed to import workout plan - unexpected error occurred");
@@ -1803,6 +1837,19 @@ export function WorkoutPage({
           toast.error(`Failed to import routines: ${routinesResult.error}`);
           return;
         }
+        setRoutines(data.routines);
+        const s = properSchedule as Record<string, unknown>;
+        setWeeklySchedule({
+          0: (s.sunday as RoutineId) ?? "REST",
+          1: (s.monday as RoutineId) ?? "REST",
+          2: (s.tuesday as RoutineId) ?? "REST",
+          3: (s.wednesday as RoutineId) ?? "REST",
+          4: (s.thursday as RoutineId) ?? "REST",
+          5: (s.friday as RoutineId) ?? "REST",
+          6: (s.saturday as RoutineId) ?? "REST",
+        });
+        setCustomTitle(planName);
+        router.refresh();
         toast.success(`Created new plan "${planName}" and imported routines`);
       } else {
         // Overwrite current plan
@@ -1834,6 +1881,7 @@ export function WorkoutPage({
         };
         setWeeklySchedule(newWeeklySchedule);
         setCustomTitle(planName);
+        router.refresh();
         
         toast.success("Workout plan imported successfully");
       }
@@ -1852,7 +1900,7 @@ export function WorkoutPage({
     try {
       /** Persist the live session — mapping only `routine.exercises` dropped everything when the routine template was empty or IDs diverged. */
       const payload = sessionData.exercises.map((sessionEx) => {
-        const name = sessionEx.name?.trim() ? sessionEx.name : resolveExerciseName(sessionEx.exerciseId);
+        const name = sessionEx.name?.trim() ? sessionEx.name : resolveExerciseNameFromId(sessionEx.exerciseId);
         const routineItem = routine.exercises.find((e) => e.exerciseId === sessionEx.exerciseId);
 
         const { weights: targetWeights } = parseWeightPlan(routineItem?.targetWeight ?? "");
@@ -1991,8 +2039,7 @@ export function WorkoutPage({
       const routineName = routine ? routine.name : "REST";
       const exercises = routine
         ? routine.exercises.map((ex) => {
-            const resolved = resolveExercise(ex.exerciseId);
-            const name = resolved?.name ?? ex.exerciseId;
+            const name = resolveExerciseNameFromId(ex.exerciseId);
             const weightLabel = (ex.targetWeight && String(ex.targetWeight).trim().length > 0) ? String(ex.targetWeight).trim() : "—";
             return `${name} • Sets: ${ex.targetSets} • Weight: ${weightLabel} • Reps: ${ex.targetReps} • RPE: ${ex.targetRPE} • Rest: ${ex.restTime}`;
           })
@@ -2556,24 +2603,24 @@ export function WorkoutPage({
                         <Badge variant="outline" className="rounded-md border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
                           Rest: {restTime}
                         </Badge>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          onClick={() => openSwapExercise(activeExercise)}
-                        >
-                          Replace
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 text-muted-foreground hover:text-foreground"
-                          onClick={() => skipExerciseForToday(activeExercise.id)}
-                        >
-                          Skip
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => openSwapExercise(activeExercise)}>
+                              Replace exercise
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-red-500 focus:text-red-500"
+                              onClick={() => skipExerciseForToday(activeExercise.id)}
+                            >
+                              Skip for today
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </CardHeader>
                     <CardContent>

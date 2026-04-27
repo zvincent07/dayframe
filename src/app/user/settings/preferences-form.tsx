@@ -6,20 +6,17 @@ import { useTheme } from "@/components/theme-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { saveUnits, saveCurrency, saveFirstDayOfWeek, saveEncryptLocalCache } from "./actions";
+import { saveUnits, saveCurrency, saveFirstDayOfWeek } from "./actions";
 
 export function PreferencesForm({
   initialUnits = "metric",
   initialCurrency = "USD",
   initialFirstDay = "sunday",
-  initialEncryptLocalCache = false,
 }: {
   initialUnits?: "metric" | "imperial";
   initialCurrency?: string;
   initialFirstDay?: "sunday" | "monday";
-  initialEncryptLocalCache?: boolean;
 }) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
@@ -31,7 +28,6 @@ export function PreferencesForm({
   const [units, setUnits] = useState<"metric"|"imperial">(initialUnits);
   const normalizedInitialCurrency = (initialCurrency || "USD").trim().toUpperCase();
   const [currency, setCurrency] = useState<string>(normalizedInitialCurrency);
-  const [encryptLocalCache, setEncryptLocalCache] = useState<boolean>(initialEncryptLocalCache);
 
   useEffect(() => {
     setMounted(true);
@@ -56,10 +52,6 @@ export function PreferencesForm({
   useEffect(() => {
     setCurrency((initialCurrency || "USD").trim().toUpperCase());
   }, [initialCurrency]);
-
-  useEffect(() => {
-    setEncryptLocalCache(!!initialEncryptLocalCache);
-  }, [initialEncryptLocalCache]);
 
   const handleTempUnitChange = (val: string) => {
     setTempUnit(val);
@@ -114,20 +106,6 @@ export function PreferencesForm({
       toast.success("Preferred currency updated");
       router.refresh();
     } else toast.error(res?.error || "Failed to update currency");
-  };
-
-  const handleEncryptLocalCacheChange = async (next: boolean) => {
-    setEncryptLocalCache(next);
-    try {
-      localStorage.setItem("df_encrypt_local_cache", next ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-    const res = await saveEncryptLocalCache(next);
-    if (res?.success) {
-      toast.success(next ? "Local cache encryption enabled" : "Local cache encryption disabled");
-      router.refresh();
-    } else toast.error(res?.error || "Failed to update encryption setting");
   };
 
   const handleClearCache = () => {
@@ -265,18 +243,6 @@ export function PreferencesForm({
           <CardTitle className="text-sm font-semibold">Data Management</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-background/40 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 flex-1 space-y-1">
-              <span className="block text-sm font-medium text-foreground">Encrypt local cache</span>
-              <span className="block text-pretty text-xs leading-relaxed text-muted-foreground">
-                Encrypts locally cached workout sessions before storing them in your browser. If your session key is lost,
-                drafts may be cleared.
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-3 sm:justify-end">
-              <Switch checked={encryptLocalCache} onCheckedChange={handleEncryptLocalCacheChange} />
-            </div>
-          </div>
           <div className="flex flex-col gap-4 rounded-lg border border-red-500/20 bg-red-500/10 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
             <div className="min-w-0 flex-1 space-y-1">
               <span className="block text-sm font-medium text-red-600 dark:text-red-400">Clear Local Cache</span>

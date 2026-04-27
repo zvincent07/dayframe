@@ -11,6 +11,8 @@ export interface IJournalFood extends Document {
   userId: mongoose.Types.ObjectId;
   date: string;
   food: IFoodLog;
+  /** Encrypted payload for sensitive fields (food). */
+  enc?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -25,6 +27,7 @@ const JournalFoodSchema = new Schema<IJournalFood>(
       noon: String,
       dinner: String,
     },
+    enc: { type: String },
   },
   { timestamps: true, collection: "journal_foods" }
 );

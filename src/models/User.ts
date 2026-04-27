@@ -13,11 +13,6 @@ export interface IUser extends Document {
   preferredUnits?: "metric" | "imperial";
   /** Weekly calendars and Weekly Focus column order */
   firstDayOfWeek?: "sunday" | "monday";
-  /**
-   * Encrypt local, browser-cached session data (e.g. workout session drafts) so it isn't readable
-   * from localStorage. This is client-side encryption; losing the session key will discard drafts.
-   */
-  encryptLocalCache?: boolean;
   
   // Auth provider fields
   password?: string; // Hashed password
@@ -56,7 +51,6 @@ const UserSchema = new Schema<IUser>(
     preferredCurrency: { type: String, default: "USD" },
     preferredUnits: { type: String, enum: ["metric", "imperial"], default: "metric" },
     firstDayOfWeek: { type: String, enum: ["sunday", "monday"], default: "sunday" },
-    encryptLocalCache: { type: Boolean, default: false },
     
     // Auth fields
     password: { type: String, select: false }, // Security: Never return password by default
