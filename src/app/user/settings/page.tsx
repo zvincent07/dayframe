@@ -19,6 +19,7 @@ export default async function UserSettingsPage() {
         initialUnits={user?.preferredUnits ?? "metric"}
         initialCurrency={user?.preferredCurrency ?? "USD"}
         initialFirstDay={user?.firstDayOfWeek ?? "sunday"}
+        initialEncryptLocalCache={!!user?.encryptLocalCache}
       />
     </div>
   )

@@ -43,6 +43,7 @@ import {
 import { saveWorkoutRoutines, saveWorkoutSchedule, saveWorkoutLog, createWorkoutPlan, switchWorkoutPlan, deleteWorkoutPlan, getWorkoutHistory } from "@/actions/workout";
 import { toast } from "sonner";
 import { DAY_LABELS, DEFAULT_WEEKLY_SCHEDULE, LB_PER_KG } from "@/lib/constants";
+import { decryptJsonFromLocalCache, encryptJsonForLocalCache } from "@/lib/client-crypto";
 import type {
   ActiveExercise,
   ActiveSession,
@@ -92,6 +93,7 @@ interface WorkoutPageProps {
   initialFinished?: boolean;
   initialNotes?: string;
   preferredUnits?: "metric" | "imperial";
+  encryptLocalCache?: boolean;
 }
 
 const parseWeightPlan = (plan?: string | null): { weights: (number | string)[]; unit: "kg" | "lbs" } => {
@@ -128,6 +130,19 @@ const getPlannedWeightForSet = (weights: (number | string)[], index: number): nu
   if (index < weights.length) return weights[index];
   return weights[weights.length - 1];
 };
+
+const CUSTOM_EXERCISE_PREFIX = "custom:";
+
+function getCustomExerciseNameFromId(exerciseId: string): string | null {
+  const raw = String(exerciseId || "");
+  if (!raw.toLowerCase().startsWith(CUSTOM_EXERCISE_PREFIX)) return null;
+  const name = raw.slice(CUSTOM_EXERCISE_PREFIX.length).trim();
+  return name.length > 0 ? name : null;
+}
+
+function buildCustomExerciseId(name: string): string {
+  return `${CUSTOM_EXERCISE_PREFIX}${String(name || "").trim()}`;
+}
 
 function parseRepsRange(input: string): { min: number; max: number } {
   if (!input) return { min: 0, max: 0 };
@@ -584,6 +599,8 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
                 {selectedRoutine?.exercises.map((exercise, index) => {
                   const exId = exercise.id || `${selectedRoutineId}-ex-${index}`;
                   const exerciseMeta = EXERCISES.find((e) => e.id === exercise.exerciseId);
+                  const customName = getCustomExerciseNameFromId(exercise.exerciseId);
+                  const selectValue = customName ? "__custom__" : exercise.exerciseId;
                   const optionsForRow =
                     exerciseFilter === "all"
                       ? EXERCISES
@@ -613,13 +630,21 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
                       </div>
                       <div className="flex flex-col gap-1">
                         <Select
-                          value={exercise.exerciseId}
-                          onValueChange={(val) => handleExerciseIdChange(index, val)}
+                          value={selectValue}
+                          onValueChange={(val) => {
+                            if (val === "__custom__") {
+                              handleExerciseIdChange(index, buildCustomExerciseId(customName ?? ""));
+                              return;
+                            }
+                            handleExerciseIdChange(index, val);
+                          }}
                         >
                           <SelectTrigger className="h-9 w-full justify-between border-border/60 bg-background/60">
                             <SelectValue placeholder="Exercise" />
                           </SelectTrigger>
                           <SelectContent>
+                            <SelectItem value="__custom__">Custom (type your own)</SelectItem>
+                            <SelectSeparator />
                             {(["push", "pull", "legs", "core"] as const).map((cat, catIdx, arr) => {
                               const exercisesInCat = optionsForRow.filter((e) => e.category === cat);
                               if (exercisesInCat.length === 0) return null;
@@ -637,8 +662,17 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
                             })}
                           </SelectContent>
                         </Select>
+                        {customName != null && (
+                          <input
+                            type="text"
+                            className="h-9 w-full rounded-md border border-border/60 bg-background/60 px-2 text-xs"
+                            placeholder="Custom exercise name"
+                            value={customName}
+                            onChange={(e) => handleExerciseIdChange(index, buildCustomExerciseId(e.target.value))}
+                          />
+                        )}
                         <span className="text-[11px] text-muted-foreground px-1">
-                          {exerciseMeta?.targetMuscle}
+                          {exerciseMeta?.targetMuscle ?? (customName ? "Custom exercise" : "")}
                         </span>
                       </div>
 
@@ -797,7 +831,15 @@ function RoutineEditor({ initialRoutines, onSaveRoutines, onCancel }: RoutineEdi
   );
 }
 
-export function WorkoutPage({ initialConfig, today, initialLog, initialFinished = false, initialNotes = "", preferredUnits = "metric" }: WorkoutPageProps) {
+export function WorkoutPage({
+  initialConfig,
+  today,
+  initialLog,
+  initialFinished = false,
+  initialNotes = "",
+  preferredUnits = "metric",
+  encryptLocalCache = false,
+}: WorkoutPageProps) {
   const weightUnitPref: "metric" | "imperial" = preferredUnits === "imperial" ? "imperial" : "metric";
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -917,106 +959,108 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
     }
 
     if (todayFinished) return;
-
-    const storageKey = `workout-session-${today}`;
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const parsed = JSON.parse(stored) as ActiveSession;
-        // Ensure stored session matches the *current* active routine structure!
-        // If the user switched plans, the stored session might belong to the old plan's routine for today.
-        const storedRoutineId = parsed?.exercises?.[0]?.id?.split(":")[0];
-        if (parsed?.exercises?.length > 0 && activeRoutine && storedRoutineId === activeRoutine.routineId) {
-          let startTime: Date | null = null;
-          if (parsed.startTime != null) {
-            const d = new Date(parsed.startTime as unknown as string | number | Date);
-            startTime = Number.isNaN(d.getTime()) ? new Date() : d;
+    void (async () => {
+      const storageKey = `workout-session-${today}`;
+      try {
+        const stored = localStorage.getItem(storageKey);
+        if (stored) {
+          const parsed =
+            (await decryptJsonFromLocalCache<ActiveSession>(stored)) ??
+            (JSON.parse(stored) as ActiveSession);
+          // Ensure stored session matches the *current* active routine structure!
+          // If the user switched plans, the stored session might belong to the old plan's routine for today.
+          const storedRoutineId = parsed?.exercises?.[0]?.id?.split(":")[0];
+          if (parsed?.exercises?.length > 0 && activeRoutine && storedRoutineId === activeRoutine.routineId) {
+            let startTime: Date | null = null;
+            if (parsed.startTime != null) {
+              const d = new Date(parsed.startTime as unknown as string | number | Date);
+              startTime = Number.isNaN(d.getTime()) ? new Date() : d;
+            }
+            setActiveSession({ ...parsed, startTime });
+            return;
           }
-          setActiveSession({ ...parsed, startTime });
-          return;
         }
+      } catch {
+        // Failed to load session from storage, ignore
       }
-    } catch {
-      // Failed to load session from storage, ignore
-    }
-    
-    // Hydrate session from logs and active routine
-    const exercises: ActiveExercise[] = [];
-    const exerciseMap = new Map<string, ActiveExercise>();
 
-    // 1. First, populate from active routine (targets)
-    if (activeRoutine) {
-      activeRoutine.exercises.forEach((item, index) => {
-        const exerciseDef = resolveExercise(item.exerciseId);
-        const name = exerciseDef?.name ?? item.exerciseId;
-        const exerciseKey = `${activeRoutine.routineId}:${item.exerciseId}:${index}`;
-        
-        // Find logs for this specific exercise name
-        const logEntry = initialLog.find(l => l.exercise === name);
-        const existingSetsLogs = logEntry?.history ?? [];
-        
-        const { weights } = parseWeightPlan(item.targetWeight);
-        const targetReps = item.targetReps || "0";
-        const targetSetsCount = item.targetSets || 3;
-        const setCount = Math.max(existingSetsLogs.length, targetSetsCount);
-        
-        const sets: WorkoutSet[] = Array.from({ length: setCount }).map((_, i) => {
-          const log = existingSetsLogs[i];
-          const targetW = getPlannedWeightForSet(weights, i);
-          
-          return {
-            id: `${exerciseKey}-set-${i}`,
-            targetWeight: targetW ? String(targetW) : "",
-            targetReps: targetReps,
-            actualWeight: log?.actualWeight ? String(log.actualWeight) : (targetW ? String(targetW) : ""),
-            actualReps: log?.actualReps ? String(log.actualReps) : "",
-            isCompleted: !!log?.completed,
-            userAdded: i >= targetSetsCount,
+      // Hydrate session from logs and active routine
+      const exercises: ActiveExercise[] = [];
+      const exerciseMap = new Map<string, ActiveExercise>();
+
+      // 1. First, populate from active routine (targets)
+      if (activeRoutine) {
+        activeRoutine.exercises.forEach((item, index) => {
+          const name = resolveExerciseName(item.exerciseId);
+          const exerciseKey = `${activeRoutine.routineId}:${item.exerciseId}:${index}`;
+
+          // Find logs for this specific exercise name
+          const logEntry = initialLog.find((l) => l.exercise === name);
+          const existingSetsLogs = logEntry?.history ?? [];
+
+          const { weights } = parseWeightPlan(item.targetWeight);
+          const targetReps = item.targetReps || "0";
+          const targetSetsCount = item.targetSets || 3;
+          const setCount = Math.max(existingSetsLogs.length, targetSetsCount);
+
+          const sets: WorkoutSet[] = Array.from({ length: setCount }).map((_, i) => {
+            const log = existingSetsLogs[i];
+            const targetW = getPlannedWeightForSet(weights, i);
+
+            return {
+              id: `${exerciseKey}-set-${i}`,
+              targetWeight: targetW ? String(targetW) : "",
+              targetReps: targetReps,
+              actualWeight: log?.actualWeight ? String(log.actualWeight) : (targetW ? String(targetW) : ""),
+              actualReps: log?.actualReps ? String(log.actualReps) : "",
+              isCompleted: !!log?.completed,
+              userAdded: i >= targetSetsCount,
+            };
+          });
+
+          const activeEx: ActiveExercise = {
+            id: exerciseKey,
+            exerciseId: item.exerciseId,
+            name,
+            sets,
           };
+          exercises.push(activeEx);
+          exerciseMap.set(name, activeEx);
         });
+      }
 
-        const activeEx: ActiveExercise = {
+      // 2. Second, add exercises from initialLog that WEREN'T in the routine
+      initialLog.forEach((logEntry) => {
+        if (exerciseMap.has(logEntry.exercise)) return;
+
+        const exerciseDef = EXERCISES.find((e) => e.name === logEntry.exercise);
+        const exerciseId = exerciseDef?.id ?? buildCustomExerciseId(logEntry.exercise);
+        const exerciseKey = `manual:${exerciseId}:${Date.now()}`;
+
+        const existingSetsLogs = logEntry.history ?? [];
+        const sets: WorkoutSet[] = existingSetsLogs.map((log, i) => ({
+          id: `${exerciseKey}-set-${i}`,
+          targetWeight: "",
+          targetReps: "0",
+          actualWeight: log?.actualWeight ? String(log.actualWeight) : "",
+          actualReps: log?.actualReps ? String(log.actualReps) : "",
+          isCompleted: !!log?.completed,
+          userAdded: true,
+        }));
+
+        exercises.push({
           id: exerciseKey,
-          exerciseId: item.exerciseId,
-          name,
+          exerciseId,
+          name: logEntry.exercise,
           sets,
-        };
-        exercises.push(activeEx);
-        exerciseMap.set(name, activeEx);
+        });
       });
-    }
 
-    // 2. Second, add exercises from initialLog that WEREN'T in the routine
-    initialLog.forEach((logEntry) => {
-      if (exerciseMap.has(logEntry.exercise)) return;
-      
-      const exerciseDef = EXERCISES.find(e => e.name === logEntry.exercise);
-      const exerciseId = exerciseDef?.id ?? logEntry.exercise;
-      const exerciseKey = `manual:${exerciseId}:${Date.now()}`;
-      
-      const existingSetsLogs = logEntry.history ?? [];
-      const sets: WorkoutSet[] = existingSetsLogs.map((log, i) => ({
-        id: `${exerciseKey}-set-${i}`,
-        targetWeight: "",
-        targetReps: "0",
-        actualWeight: log?.actualWeight ? String(log.actualWeight) : "",
-        actualReps: log?.actualReps ? String(log.actualReps) : "",
-        isCompleted: !!log?.completed,
-        userAdded: true,
-      }));
-
-      exercises.push({
-        id: exerciseKey,
-        exerciseId,
-        name: logEntry.exercise,
-        sets
+      setActiveSession({
+        startTime: exercises.some((ex) => ex.sets.some((s) => s.isCompleted)) ? (activeSession.startTime || new Date()) : new Date(),
+        exercises,
       });
-    });
-
-    setActiveSession({
-      startTime: exercises.some(ex => ex.sets.some(s => s.isCompleted)) ? (activeSession.startTime || new Date()) : new Date(),
-      exercises,
-    });
+    })();
   }, [activeRoutine, initialLog, today, todayFinished]);
 
   const [sessionNotes, setSessionNotes] = useState(initialNotes);
@@ -1038,6 +1082,9 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
   const [isRoutinesModalOpen, setIsRoutinesModalOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [swapTargetExerciseKey, setSwapTargetExerciseKey] = useState<string | null>(null);
+  const [swapExerciseId, setSwapExerciseId] = useState<string>(EXERCISES[0]?.id ?? "wg-pulldown");
+  const [swapCustomName, setSwapCustomName] = useState<string>("");
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyEntries, setHistoryEntries] = useState<Array<{ _id: string; date: string; workouts: Array<Record<string, unknown>>; finished?: boolean; notes?: string }>>([]);
   const [importDialogData, setImportDialogData] = useState<{planName: string, data: any, properSchedule: any} | null>(null);
@@ -1158,12 +1205,17 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
     if (todayFinished) return;
     if (!activeSession.exercises.length) return;
     const storageKey = `workout-session-${today}`;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(activeSession));
-    } catch {
-      // storage full or unavailable
-    }
-  }, [activeSession, today, todayFinished]);
+    void (async () => {
+      try {
+        const payload = encryptLocalCache
+          ? await encryptJsonForLocalCache(activeSession)
+          : JSON.stringify(activeSession);
+        localStorage.setItem(storageKey, payload);
+      } catch {
+        // storage full or unavailable
+      }
+    })();
+  }, [activeSession, today, todayFinished, encryptLocalCache]);
 
   // Warn about unsaved changes
   useEffect(() => {
@@ -1177,8 +1229,14 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [hasDirtyWorkout]);
 
-  const resolveExercise = (exerciseId: string) =>
-    EXERCISES.find((e) => e.id === exerciseId);
+  const resolveExercise = (exerciseId: string) => EXERCISES.find((e) => e.id === exerciseId);
+
+  const resolveExerciseName = (exerciseId: string): string => {
+    const custom = getCustomExerciseNameFromId(exerciseId);
+    if (custom) return custom;
+    const fromList = resolveExercise(exerciseId)?.name;
+    return fromList ?? exerciseId;
+  };
 
   const [, setPlanSeedVersion] = useState(0);
 
@@ -1275,14 +1333,14 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
 
   // --- Step 3: Interactive Logic ---
 
-  const handleSetChange = (exerciseId: string, setId: string, field: "actualWeight" | "actualReps", value: string) => {
+  const handleSetChange = (exerciseKey: string, setId: string, field: "actualWeight" | "actualReps", value: string) => {
     touchedSessionRef.current = true;
     setActiveSession(prev => {
       const nextExercises = prev.exercises.map(ex => {
-        if (ex.exerciseId !== exerciseId) return ex;
+        if (ex.id !== exerciseKey) return ex;
         let normalized = value;
         if (field === "actualWeight") {
-          normalized = normalizeWeightInput(value, exerciseId, weightUnitPref);
+          normalized = normalizeWeightInput(value, ex.exerciseId, weightUnitPref);
         }
         
         return {
@@ -1295,7 +1353,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
       });
       
       const propagated = nextExercises.map(ex => {
-        if (ex.exerciseId !== exerciseId) return ex;
+        if (ex.id !== exerciseKey) return ex;
         const currentSet = ex.sets.find(s => s.id === setId);
         if (!currentSet) return ex;
         if (field !== "actualWeight") return ex;
@@ -1322,11 +1380,11 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
     }, 2000);
   };
 
-  const handleToggleSetComplete = (exerciseId: string, setId: string) => {
+  const handleToggleSetComplete = (exerciseKey: string, setId: string) => {
     touchedSessionRef.current = true;
     setActiveSession(prev => {
       const nextExercises = prev.exercises.map(ex => {
-        if (ex.exerciseId !== exerciseId) return ex;
+        if (ex.id !== exerciseKey) return ex;
         
         return {
           ...ex,
@@ -1369,14 +1427,14 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
     }, 2000);
   };
 
-  const handleAddSet = (exerciseId: string) => {
+  const handleAddSet = (exerciseKey: string) => {
     touchedSessionRef.current = true;
     setActiveSession(prev => {
       const nextExercises = prev.exercises.map(ex => {
-        if (ex.exerciseId !== exerciseId) return ex;
+        if (ex.id !== exerciseKey) return ex;
         
         const newSetIndex = ex.sets.length;
-        const routineExercise = activeRoutine?.exercises.find((e) => e.exerciseId === exerciseId);
+        const routineExercise = activeRoutine?.exercises.find((e) => e.exerciseId === ex.exerciseId);
         const { weights } = parseWeightPlan(routineExercise?.targetWeight || "");
         const plannedWeight = getPlannedWeightForSet(weights, newSetIndex);
         const targetRepsForRow = routineExercise?.targetReps || ex.sets[newSetIndex - 1]?.targetReps || "0";
@@ -1410,11 +1468,11 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
     }, 2000);
   };
 
-  const handleDeleteSet = (exerciseId: string, setId: string) => {
+  const handleDeleteSet = (exerciseKey: string, setId: string) => {
     touchedSessionRef.current = true;
     setActiveSession(prev => {
       const nextExercises = prev.exercises.map(ex => {
-        if (ex.exerciseId !== exerciseId) return ex;
+        if (ex.id !== exerciseKey) return ex;
         const target = ex.sets.find(s => s.id === setId);
         if (target && !target.userAdded) {
           return ex; // do not delete planned/hydrated sets
@@ -1438,11 +1496,65 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
     }, 2000);
   };
 
+  const openSwapExercise = (ex: ActiveExercise) => {
+    const custom = getCustomExerciseNameFromId(ex.exerciseId);
+    if (custom) {
+      setSwapExerciseId("__custom__");
+      setSwapCustomName(custom);
+    } else {
+      setSwapExerciseId(ex.exerciseId);
+      setSwapCustomName("");
+    }
+    setSwapTargetExerciseKey(ex.id);
+  };
+
+  const applySwapExercise = async () => {
+    const targetKey = swapTargetExerciseKey;
+    if (!targetKey) return;
+    const nextExerciseId =
+      swapExerciseId === "__custom__" ? buildCustomExerciseId(swapCustomName) : swapExerciseId;
+    const nextName = resolveExerciseName(nextExerciseId);
+
+    touchedSessionRef.current = true;
+    setActiveSession((prev) => ({
+      ...prev,
+      exercises: prev.exercises.map((ex) =>
+        ex.id === targetKey
+          ? {
+              ...ex,
+              exerciseId: nextExerciseId,
+              name: nextName,
+            }
+          : ex
+      ),
+    }));
+    setHasDirtyWorkout(true);
+    setSwapTargetExerciseKey(null);
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      if (!todayFinishedRef.current) void saveWorkout();
+    }, 800);
+  };
+
+  const skipExerciseForToday = (exerciseKey: string) => {
+    touchedSessionRef.current = true;
+    setActiveSession((prev) => ({
+      ...prev,
+      exercises: prev.exercises.filter((ex) => ex.id !== exerciseKey),
+    }));
+    setHasDirtyWorkout(true);
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      if (!todayFinishedRef.current) void saveWorkout();
+    }, 800);
+  };
+
   const buildSessionFromRoutine = (): ActiveSession => {
     if (!activeRoutine) return { startTime: null, exercises: [] };
     const exercises: ActiveExercise[] = activeRoutine.exercises.map((item, index) => {
-      const exerciseDef = resolveExercise(item.exerciseId);
-      const name = exerciseDef?.name ?? item.exerciseId;
+      const name = resolveExerciseName(item.exerciseId);
       const exerciseKey = `${activeRoutine.routineId}:${item.exerciseId}:${index}`;
       const existingLogs = initialLog.find(l => l.exercise === name)?.history ?? [];
       const { weights } = parseWeightPlan(item.targetWeight);
@@ -1740,8 +1852,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
     try {
       /** Persist the live session — mapping only `routine.exercises` dropped everything when the routine template was empty or IDs diverged. */
       const payload = sessionData.exercises.map((sessionEx) => {
-        const exerciseDef = resolveExercise(sessionEx.exerciseId);
-        const name = sessionEx.name || exerciseDef?.name || sessionEx.exerciseId;
+        const name = sessionEx.name?.trim() ? sessionEx.name : resolveExerciseName(sessionEx.exerciseId);
         const routineItem = routine.exercises.find((e) => e.exerciseId === sessionEx.exerciseId);
 
         const { weights: targetWeights } = parseWeightPlan(routineItem?.targetWeight ?? "");
@@ -2321,6 +2432,63 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                 })}
               </div>
             </Modal>
+            <Modal
+              isOpen={swapTargetExerciseKey != null}
+              onClose={() => setSwapTargetExerciseKey(null)}
+              title="Replace exercise for today"
+              description="If a machine is broken (or you're changing equipment), replace just for today's session. Your routine template won't change."
+              size="md"
+              footer={
+                <div className="flex w-full justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setSwapTargetExerciseKey(null)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={() => void applySwapExercise()}>
+                    Replace
+                  </Button>
+                </div>
+              }
+            >
+              <div className="space-y-4">
+                <div className="grid gap-2">
+                  <Label>Exercise</Label>
+                  <Select value={swapExerciseId} onValueChange={setSwapExerciseId}>
+                    <SelectTrigger className="border-border/60 bg-background/60">
+                      <SelectValue placeholder="Select exercise" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__custom__">Custom (type your own)</SelectItem>
+                      <SelectSeparator />
+                      {(["push", "pull", "legs", "core", "other"] as const).map((cat, catIdx, arr) => {
+                        const list = EXERCISES.filter((e) => e.category === cat);
+                        if (list.length === 0) return null;
+                        return (
+                          <SelectGroup key={cat}>
+                            <SelectLabel className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">{cat}</SelectLabel>
+                            {list.map((ex) => (
+                              <SelectItem key={ex.id} value={ex.id}>
+                                {ex.name}
+                              </SelectItem>
+                            ))}
+                            {catIdx < arr.length - 1 && <SelectSeparator />}
+                          </SelectGroup>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {swapExerciseId === "__custom__" && (
+                  <div className="grid gap-2">
+                    <Label>Custom name</Label>
+                    <Input
+                      value={swapCustomName}
+                      onChange={(e) => setSwapCustomName(e.target.value)}
+                      placeholder="e.g. Banded lat pulldown"
+                    />
+                  </div>
+                )}
+              </div>
+            </Modal>
             <div className="flex flex-wrap gap-2 mt-3">
               {DAY_LABELS.map((label, index) => {
                 const dayIndex = index as DayOfWeek;
@@ -2364,10 +2532,10 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                 );
                 const targetRPE = routineExercise?.targetRPE ?? "—";
                 const restTime = routineExercise?.restTime ?? "—";
-                const indexLabel =
-                  activeRoutine.exercises.findIndex(
-                    (e) => e.exerciseId === activeExercise.exerciseId
-                  ) + 1;
+                const idxInRoutine = activeRoutine.exercises.findIndex(
+                  (e) => e.exerciseId === activeExercise.exerciseId
+                );
+                const indexLabel = idxInRoutine >= 0 ? idxInRoutine + 1 : idx + 1;
 
                 return (
                   <Card key={activeExercise.id ?? `${activeExercise.exerciseId}:${idx}`} className="bg-card border-border shadow-sm">
@@ -2388,6 +2556,24 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                         <Badge variant="outline" className="rounded-md border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
                           Rest: {restTime}
                         </Badge>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          onClick={() => openSwapExercise(activeExercise)}
+                        >
+                          Replace
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-muted-foreground hover:text-foreground"
+                          onClick={() => skipExerciseForToday(activeExercise.id)}
+                        >
+                          Skip
+                        </Button>
                       </div>
                     </CardHeader>
                     <CardContent>
@@ -2417,7 +2603,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                                           value={kgStorageStringToDisplayWeight(set.actualWeight, weightUnitPref)}
                                           onChange={(e) =>
                                             handleSetChange(
-                                              activeExercise.exerciseId,
+                                              activeExercise.id,
                                               set.id,
                                               "actualWeight",
                                               e.target.value
@@ -2445,7 +2631,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                                       value={set.actualReps}
                                       onChange={(e) =>
                                         handleSetChange(
-                                          activeExercise.exerciseId,
+                                          activeExercise.id,
                                           set.id,
                                           "actualReps",
                                           e.target.value
@@ -2465,7 +2651,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                                       : "border border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
                                   }`}
                                   aria-label="Toggle complete"
-                                  onClick={() => handleToggleSetComplete(activeExercise.exerciseId, set.id)}
+                                  onClick={() => handleToggleSetComplete(activeExercise.id, set.id)}
                                 >
                                   <Check className="w-4 h-4" />
                                 </button>
@@ -2476,7 +2662,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                                     size="icon"
                                     className="h-10 w-10 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:h-8 sm:w-8"
                                     aria-label="Remove set"
-                                    onClick={() => handleDeleteSet(activeExercise.exerciseId, set.id)}
+                                    onClick={() => handleDeleteSet(activeExercise.id, set.id)}
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
@@ -2491,7 +2677,7 @@ export function WorkoutPage({ initialConfig, today, initialLog, initialFinished 
                         variant="ghost"
                         size="sm"
                         className="mt-2 text-muted-foreground"
-                        onClick={() => handleAddSet(activeExercise.exerciseId)}
+                        onClick={() => handleAddSet(activeExercise.id)}
                       >
                         + Add set
                       </Button>

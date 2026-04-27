@@ -97,3 +97,29 @@ export async function saveCurrency(code: string) {
     return { success: false, error: "Failed to update currency" };
   }
 }
+
+export async function saveEncryptLocalCache(enabled: boolean) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (typeof userId !== "string" || !userId.trim()) {
+    return { success: false, error: "Unauthorized" };
+  }
+  try {
+    const updated = await UserRepository.update(userId, { encryptLocalCache: !!enabled });
+    if (!updated) {
+      return { success: false, error: "Could not save preference (user not found)" };
+    }
+    after(async () => {
+      await AuditService.log("PREFERENCES_UPDATED", userId, "User", {
+        field: "encryptLocalCache",
+        value: !!enabled,
+      });
+    });
+    revalidatePath("/user/settings");
+    revalidatePath("/user/workout");
+    revalidatePath("/user/today");
+    return { success: true };
+  } catch {
+    return { success: false, error: "Failed to update encryption preference" };
+  }
+}

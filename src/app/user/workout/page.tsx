@@ -37,6 +37,7 @@ export default async function WorkoutRoute({ searchParams }: { searchParams: Pro
       initialFinished={logResult.finished}
       initialNotes={logResult.notes ?? ""}
       preferredUnits={user?.preferredUnits ?? "metric"}
+      encryptLocalCache={!!user?.encryptLocalCache}
     />
   );
 }
